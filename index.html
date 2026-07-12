@@ -1,0 +1,2088 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>GarageOS — Il tuo parco macchine</title>
+<meta name="description" content="Gestisci il tuo parco macchine in famiglia">
+<meta name="theme-color" content="#0c333d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GarageOS">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&display=swap') layer(fonts);
+  @layer fonts { :root { --font: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; } }
+
+  :root {
+    /* Palette Flowmet */
+    --teal-deep: #0c333d;
+    --teal-mid:  #14666e;
+    --teal-lite: #1b9c8f;
+    --navy:      #0e2a33;
+    --navy-2:    #143743;
+    --grad: linear-gradient(180deg, #0c333d 0%, #11565f 52%, #189183 100%);
+    --page: #eef2f3;
+    --card: #ffffff;
+    --ink:   #14333c;
+    --ink-2: #6b7f86;
+    --line:  #e3e9ea;
+    --field: #f1f4f5;
+    --green:  #21b57e;
+    --green-soft: rgba(33,181,126,0.12);
+    --yellow: #eda21c;
+    --yellow-soft: rgba(237,162,28,0.13);
+    --red:    #e5484d;
+    --red-soft: rgba(229,72,77,0.11);
+    --blue:   #2f86d6;
+    --blue-soft: rgba(47,134,214,0.12);
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    --radius: 22px;
+    --radius-sm: 14px;
+    --shadow: 0 6px 24px rgba(12,51,61,0.08);
+    --trans: 0.3s cubic-bezier(.4,0,.2,1);
+    --nav-h: 74px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  .emoji, .sc-icon, .empty-icon, .mt-icon, .tire-icon-e {
+    font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
+    font-style: normal;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--teal-deep);
+    color: var(--ink);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(12,51,61,0.2); border-radius: 4px; }
+
+  /* ===== APP FRAME ===== */
+  #app {
+    max-width: 680px; margin: 0 auto;
+    min-height: 100vh;
+    background: var(--grad);
+    position: relative;
+    display: none;
+  }
+  #app.visible { display: block; }
+
+  /* ===== TOP HEADER (sul gradiente) ===== */
+  .app-top {
+    padding: calc(18px + env(safe-area-inset-top)) 24px 6px;
+    display: flex; align-items: flex-start; justify-content: space-between;
+  }
+  .app-title { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.15; }
+  .app-title .caret { font-size: 14px; opacity: 0.85; margin-left: 4px; }
+  .app-role { color: #4fe3b0; font-size: 14px; font-weight: 600; margin-top: 2px; }
+  .top-actions { display: flex; align-items: center; gap: 10px; position: relative; }
+  #db-status {
+    font-size: 11px; color: rgba(255,255,255,0.75);
+    padding: 4px 10px; border-radius: 100px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.12);
+    white-space: nowrap;
+  }
+  .user-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.35); object-fit: cover;
+    cursor: pointer; transition: border-color 0.2s; flex-shrink: 0;
+  }
+  .user-avatar:hover { border-color: #4fe3b0; }
+  .user-menu {
+    position: absolute; top: calc(100% + 10px); right: 0;
+    background: var(--card); border-radius: 18px; padding: 8px; min-width: 230px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    z-index: 300; animation: fadeUp 0.2s ease; display: none;
+  }
+  .user-menu.open { display: block; }
+  .user-menu-header { padding: 10px 12px 14px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .user-menu-name { font-weight: 800; font-size: 14px; color: var(--ink); }
+  .user-menu-email { color: var(--ink-2); font-size: 12px; margin-top: 2px; }
+  .user-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 12px; border-radius: 12px;
+    font-size: 14px; cursor: pointer; transition: background 0.2s;
+    color: var(--ink); font-weight: 500;
+  }
+  .user-menu-item:hover { background: var(--field); }
+  .user-menu-item.danger { color: var(--red); }
+
+  /* ===== HERO (gauge) ===== */
+  .hero { text-align: center; padding: 6px 24px 0; }
+  .hero-gauge { position: relative; width: min(320px, 78vw); margin: 0 auto; }
+  .hero-gauge svg { width: 100%; display: block; }
+  .hero-num {
+    position: absolute; inset: 0; top: 22%;
+    display: flex; flex-direction: column; align-items: center;
+    color: #fff; pointer-events: none;
+  }
+  .hero-num .n { font-size: 64px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
+  .hero-num .u { font-size: 17px; font-weight: 500; opacity: 0.8; margin-top: 4px; }
+  .hero-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--navy); border-radius: 100px;
+    padding: 10px 22px; margin-top: -20px;
+    font-size: 16px; font-weight: 700; color: #4fe3b0;
+    position: relative; z-index: 2;
+  }
+  .hero-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+  .hero-pill.yellow { color: #ffc555; }
+  .hero-pill.red { color: #ff7b80; }
+  .hero-sub { color: rgba(255,255,255,0.85); font-size: 15px; margin: 14px 0 4px; font-weight: 500; }
+  .hero-sub b { font-weight: 700; color: #fff; }
+
+  /* Header compatto per tab non-dashboard */
+  .page-head { padding: 8px 24px 18px; }
+  .page-title { color: #fff; font-size: 24px; font-weight: 800; letter-spacing: -0.3px; }
+  .page-sub { color: rgba(255,255,255,0.75); font-size: 14px; margin-top: 3px; }
+
+  /* ===== AVVISI ===== */
+  .notif-wrap { padding: 10px 24px 0; display: none; }
+  .notif-wrap.has { display: flex; gap: 8px; flex-wrap: wrap; }
+  .notif-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 13px; border-radius: 100px;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    animation: fadeUp 0.4s ease; transition: transform 0.2s;
+    backdrop-filter: blur(6px);
+  }
+  .notif-chip:hover { transform: scale(1.04); }
+  .notif-chip.red { background: rgba(229,72,77,0.25); border: 1px solid rgba(255,255,255,0.2); color: #ffd2d4; }
+  .notif-chip.yellow { background: rgba(237,162,28,0.22); border: 1px solid rgba(255,255,255,0.2); color: #ffe4b0; }
+
+  /* ===== SHEET (contenuto bianco) ===== */
+  .sheet {
+    background: var(--page);
+    border-radius: 28px 28px 0 0;
+    margin-top: 22px;
+    min-height: 60vh;
+    padding: 22px 18px calc(var(--nav-h) + 36px);
+    position: relative; z-index: 1;
+  }
+
+  .section { display: none; animation: fadeUp 0.35s ease; }
+  .section.active { display: block; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  /* ===== SEGMENTED CONTROL ===== */
+  .seg {
+    display: flex; background: #e5eaeb; border-radius: 16px; padding: 4px;
+    margin-bottom: 18px;
+  }
+  .seg-btn {
+    flex: 1; padding: 10px 8px; border: none; background: transparent;
+    border-radius: 13px; font-family: var(--font); font-size: 14px; font-weight: 700;
+    color: var(--ink-2); cursor: pointer; transition: var(--trans); white-space: nowrap;
+  }
+  .seg-btn.active { background: #fff; color: var(--ink); box-shadow: 0 3px 10px rgba(12,51,61,0.1); }
+
+  /* ===== CARDS ===== */
+  .card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 20px; box-shadow: var(--shadow);
+  }
+  .card-label { font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--ink-2); margin-bottom: 10px; }
+
+  /* STATS */
+  .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .stat-card { background: var(--card); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow); }
+  .stat-value { font-size: 30px; font-weight: 800; letter-spacing: -1px; color: var(--ink); }
+  .stat-value.accent { color: var(--green); }
+  .stat-label { color: var(--ink-2); font-size: 13px; margin-top: 2px; font-weight: 500; }
+
+  /* VEHICLES */
+  .vehicle-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  @media (min-width: 560px) { .vehicle-grid { grid-template-columns: 1fr 1fr; } }
+  .vehicle-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 20px; box-shadow: var(--shadow);
+    position: relative; transition: var(--trans);
+  }
+  .vehicle-card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(12,51,61,0.13); }
+  .vc-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+  .vc-plate {
+    display: inline-block; padding: 4px 12px;
+    background: var(--navy); border-radius: 8px;
+    font-weight: 800; font-size: 14px; letter-spacing: 1.5px; color: #fff;
+  }
+  .vc-model { font-size: 18px; font-weight: 800; margin: 8px 0 3px; color: var(--ink); letter-spacing: -0.3px; }
+  .vc-meta { color: var(--ink-2); font-size: 13px; font-weight: 500; }
+  .vc-badges { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 14px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border-radius: 100px;
+    font-size: 12px; font-weight: 700;
+  }
+  .badge.green  { background: var(--green-soft);  color: #128a5f; }
+  .badge.yellow { background: var(--yellow-soft); color: #b57608; }
+  .badge.red    { background: var(--red-soft);    color: var(--red); }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
+  .vc-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+  .icon-btn {
+    background: var(--field); border: none; color: var(--ink-2);
+    cursor: pointer; width: 34px; height: 34px; border-radius: 10px;
+    font-size: 15px; transition: var(--trans);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  }
+  .icon-btn:hover { background: #e5eaeb; }
+  .icon-btn.danger:hover { background: var(--red-soft); }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 22px; border-radius: 100px;
+    font-family: var(--font); font-size: 14px; font-weight: 700;
+    cursor: pointer; border: none; transition: var(--trans);
+  }
+  .btn-primary { background: var(--green); color: #fff; box-shadow: 0 6px 18px rgba(33,181,126,0.35); }
+  .btn-primary:hover { background: #1da371; transform: translateY(-1px); }
+  .btn-secondary { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .btn-secondary:hover { border-color: #c9d3d5; }
+  .btn-danger { background: var(--red-soft); color: var(--red); }
+  .btn-danger:hover { background: rgba(229,72,77,0.2); }
+  .btn-sm { padding: 8px 15px; font-size: 13px; }
+
+  .add-vehicle-card {
+    border: 2px dashed #c9d4d6; border-radius: var(--radius);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 34px 20px; cursor: pointer; min-height: 150px;
+    transition: var(--trans); color: var(--ink-2); background: transparent;
+    font-weight: 700; font-size: 14px; gap: 8px;
+  }
+  .add-vehicle-card:hover { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+  .add-vehicle-card .add-icon { font-size: 30px; }
+
+  /* FAB */
+  #fab {
+    position: fixed; right: max(18px, calc(50vw - 340px + 18px));
+    bottom: calc(var(--nav-h) + 18px + env(safe-area-inset-bottom));
+    width: 58px; height: 58px; border-radius: 50%;
+    background: var(--green); color: #fff; border: none;
+    font-size: 28px; font-weight: 400; line-height: 1;
+    box-shadow: 0 10px 28px rgba(33,181,126,0.45);
+    cursor: pointer; z-index: 150; transition: var(--trans);
+    display: none; align-items: center; justify-content: center;
+  }
+  #fab.show { display: flex; }
+  #fab:hover { transform: scale(1.06); }
+
+  /* EMPTY STATE */
+  .empty-state { text-align: center; padding: 50px 20px; color: var(--ink-2); }
+  .empty-state .empty-icon { font-size: 44px; margin-bottom: 12px; opacity: 0.6; }
+  .empty-state p { font-size: 15px; font-weight: 500; }
+
+  /* SCADENZE */
+  .scadenze-list { display: grid; gap: 12px; }
+  .scadenza-item {
+    display: flex; align-items: center; gap: 15px;
+    padding: 17px 18px; background: var(--card);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+  }
+  .sc-icon-wrap {
+    width: 46px; height: 46px; border-radius: 14px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 21px;
+  }
+  .sc-info { flex: 1; min-width: 0; }
+  .sc-title { font-weight: 800; font-size: 15px; color: var(--ink); }
+  .sc-sub { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; font-weight: 500; }
+  .sc-days { font-weight: 800; font-size: 20px; text-align: right; min-width: 62px; letter-spacing: -0.5px; }
+  .progress-bar { height: 5px; background: #e8ecee; border-radius: 5px; overflow: hidden; margin-top: 9px; }
+  .progress-fill { height: 100%; border-radius: 5px; transition: width 1s ease; }
+
+  /* PNEUMATICI */
+  .tire-grid { display: grid; grid-template-columns: 1fr; gap: 13px; }
+  @media (min-width: 560px) { .tire-grid { grid-template-columns: 1fr 1fr; } }
+  .tire-card { background: var(--card); border-radius: var(--radius); padding: 19px; box-shadow: var(--shadow); }
+  .tire-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tire-season { padding: 4px 11px; border-radius: 100px; font-size: 11.5px; font-weight: 800; }
+  .tire-season.invernale { background: var(--blue-soft); color: var(--blue); }
+  .tire-season.estivo { background: var(--yellow-soft); color: #b57608; }
+  .tire-season.allseason { background: var(--green-soft); color: #128a5f; }
+  .tire-detail { font-size: 13.5px; color: var(--ink-2); margin: 5px 0; font-weight: 500; }
+  .tire-detail strong { color: var(--ink); font-weight: 700; }
+
+  /* MECCANICA */
+  .mech-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 18px; background: var(--card);
+  }
+  .mech-icon-wrap {
+    width: 46px; height: 46px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px; flex-shrink: 0;
+    font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  }
+  .mech-info { flex: 1; min-width: 0; }
+  .mech-title { font-weight: 800; font-size: 15px; color: var(--ink); }
+  .mech-sub { color: var(--ink-2); font-size: 12.5px; margin-top: 3px; line-height: 1.45; font-weight: 500; }
+  .mech-note { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; padding: 7px 10px; background: var(--field); border-radius: 10px; }
+  .mech-cost { font-weight: 800; font-size: 16px; color: var(--ink); white-space: nowrap; letter-spacing: -0.3px; }
+
+  .year-group { margin-bottom: 12px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  .year-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 15px 19px; cursor: pointer; background: var(--card);
+    transition: var(--trans); user-select: none;
+  }
+  .year-header:hover { background: #fafbfb; }
+  .year-header-left { display: flex; align-items: center; gap: 11px; }
+  .year-label { font-size: 18px; font-weight: 800; color: var(--ink); }
+  .year-count { background: var(--field); border-radius: 100px; font-size: 12px; font-weight: 700; color: var(--ink-2); padding: 3px 11px; }
+  .year-cost { font-weight: 800; font-size: 15px; color: var(--green); }
+  .year-chevron { font-size: 12px; color: var(--ink-2); transition: transform 0.3s ease; display: inline-block; }
+  .year-header.open .year-chevron { transform: rotate(180deg); }
+  .year-body { display: none; border-top: 1px solid var(--line); }
+  .year-body.open { display: block; animation: fadeUp 0.25s ease; }
+  .year-body .mech-item { border-bottom: 1px solid var(--line); }
+  .year-body .mech-item:last-child { border-bottom: none; }
+  .mech-summary { margin: 2px 2px 16px; color: var(--ink-2); font-size: 13.5px; font-weight: 500; }
+  .mech-summary strong { color: var(--green); font-weight: 800; }
+
+  /* FILTRI */
+  .filter-row { display: flex; gap: 9px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filter-select {
+    padding: 10px 14px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 13px; color: var(--ink); font-family: var(--font);
+    font-size: 13.5px; font-weight: 600; outline: none; cursor: pointer;
+    box-shadow: var(--shadow); appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7f86' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px;
+  }
+
+  /* FAMIGLIA */
+  .family-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px; }
+  @media (min-width: 560px) { .family-grid { grid-template-columns: 1fr 1fr; } }
+  .family-card {
+    background: var(--card); border-radius: var(--radius); padding: 16px 18px;
+    display: flex; align-items: center; gap: 13px; box-shadow: var(--shadow);
+  }
+  .family-avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--line); }
+  .family-avatar-placeholder {
+    width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0;
+    background: var(--field); display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-family: "Apple Color Emoji","Segoe UI Emoji",sans-serif;
+  }
+  .family-info { flex: 1; min-width: 0; }
+  .family-name { font-weight: 800; font-size: 15px; color: var(--ink); }
+  .family-email { color: var(--ink-2); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .family-role { padding: 4px 11px; border-radius: 100px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .family-role.owner { background: var(--yellow-soft); color: #b57608; }
+  .family-role.member { background: var(--green-soft); color: #128a5f; }
+  .family-role.pending { background: var(--blue-soft); color: var(--blue); }
+
+  .invite-box { background: var(--card); border-radius: var(--radius); padding: 22px; margin-bottom: 22px; box-shadow: var(--shadow); }
+  .invite-title { font-weight: 800; font-size: 16px; margin-bottom: 13px; color: var(--ink); }
+  .invite-row { display: flex; gap: 9px; align-items: center; }
+  .invite-input {
+    flex: 1; padding: 12px 14px; background: var(--field); border: 1.5px solid transparent;
+    border-radius: 13px; color: var(--ink); font-family: var(--font); font-size: 14px; outline: none;
+    transition: border-color 0.2s; min-width: 0;
+  }
+  .invite-input:focus { border-color: var(--green); }
+  .share-link-box {
+    background: var(--field); border-radius: 13px; padding: 13px 15px;
+    display: flex; align-items: center; gap: 10px; margin-top: 14px;
+  }
+  .share-link-text { flex: 1; font-size: 12px; color: var(--ink-2); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .copy-btn {
+    background: var(--navy); color: #fff; border: none; border-radius: 9px; padding: 7px 14px;
+    font-family: var(--font); font-weight: 700; font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  .section-divider { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-2); margin: 22px 4px 12px; }
+
+  /* ===== BOTTOM NAV ===== */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 680px;
+    background: var(--navy);
+    display: flex; z-index: 200;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.25);
+  }
+  .nav-item {
+    flex: 1; height: var(--nav-h);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    background: none; border: none; cursor: pointer;
+    color: rgba(255,255,255,0.55); font-family: var(--font);
+    font-size: 11.5px; font-weight: 600; transition: color 0.25s;
+    position: relative;
+  }
+  .nav-item svg { width: 23px; height: 23px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .nav-item.active { color: #4fe3b0; }
+  .nav-item.active::before {
+    content: ''; position: absolute; top: 8px; width: 26px; height: 3px;
+    border-radius: 3px; background: #4fe3b0;
+  }
+  .nav-badge {
+    position: absolute; top: 12px; right: calc(50% - 22px);
+    min-width: 17px; height: 17px; padding: 0 5px; border-radius: 100px;
+    background: var(--red); color: #fff; font-size: 10.5px; font-weight: 800;
+    display: none; align-items: center; justify-content: center;
+  }
+  .nav-badge.show { display: inline-flex; }
+
+  /* ===== MODAL ===== */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(10,34,42,0.55); backdrop-filter: blur(8px);
+    z-index: 400; align-items: flex-end; justify-content: center;
+  }
+  @media (min-width: 560px) { .modal-overlay { align-items: center; padding: 20px; } }
+  .modal-overlay.open { display: flex; animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal {
+    background: var(--card); border-radius: 26px 26px 0 0; padding: 26px 22px calc(26px + env(safe-area-inset-bottom));
+    width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto;
+    animation: modalUp 0.32s cubic-bezier(.34,1.4,.64,1);
+  }
+  @media (min-width: 560px) { .modal { border-radius: 26px; padding: 28px; } }
+  @keyframes modalUp { from { transform: translateY(40px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+  .modal-title { font-size: 20px; font-weight: 800; margin-bottom: 20px; color: var(--ink); letter-spacing: -0.3px; }
+  .form-group { margin-bottom: 15px; }
+  .form-label { display: block; font-size: 11.5px; font-weight: 800; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 7px; }
+  .form-input, .form-select, .form-textarea {
+    width: 100%; padding: 12px 14px;
+    background: var(--field); border: 1.5px solid transparent;
+    border-radius: 13px; color: var(--ink);
+    font-family: var(--font); font-size: 14.5px; line-height: 1.4;
+    transition: border-color 0.2s; outline: none;
+    appearance: none; -webkit-appearance: none;
+  }
+  .form-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7f86' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 13px center; padding-right: 38px; cursor: pointer;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--green); }
+  .form-textarea { resize: vertical; min-height: 76px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 22px; }
+  .modal-actions .btn { flex: 1; }
+
+  /* MECH TYPE GRID */
+  .mech-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 290px; overflow-y: auto; padding-right: 4px; }
+  .mech-type-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 11px 6px;
+    background: var(--field); border: 2px solid transparent;
+    border-radius: 14px; cursor: pointer; transition: var(--trans);
+    font-family: var(--font); font-size: 11px; font-weight: 700;
+    color: var(--ink-2); text-align: center; line-height: 1.3;
+  }
+  .mech-type-btn:hover { border-color: #d4dcde; color: var(--ink); }
+  .mech-type-btn.selected { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+  .mech-type-btn .mt-icon { font-size: 21px; line-height: 1; display: block; }
+  .mech-selected-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 11px; border-radius: 100px;
+    font-size: 12px; font-weight: 700;
+    background: var(--green-soft); color: #128a5f;
+    animation: fadeUp 0.2s ease;
+  }
+  .mech-selected-tag button { background: none; border: none; cursor: pointer; color: inherit; font-size: 14px; line-height: 1; padding: 0 0 0 2px; opacity: 0.7; }
+  .mech-selected-tag button:hover { opacity: 1; }
+
+  /* ===== LOGIN ===== */
+  #login-screen {
+    position: fixed; inset: 0; z-index: 999;
+    background: var(--grad);
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    animation: fadeIn 0.5s ease; padding: 20px;
+  }
+  #login-screen.hidden { display: none; }
+  .login-box {
+    background: var(--card); border-radius: 28px; padding: 44px 36px;
+    text-align: center; max-width: 380px; width: 100%;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.35);
+  }
+  .login-logo { font-size: 32px; font-weight: 800; margin-bottom: 4px; color: var(--ink); letter-spacing: -1px; }
+  .login-logo span { color: var(--green); }
+  .login-owner { font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .login-sub { color: var(--ink-2); font-size: 14px; margin-bottom: 32px; font-weight: 500; }
+  .btn-google {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    width: 100%; padding: 14px 24px; border-radius: 16px;
+    background: var(--navy); color: #fff;
+    font-family: var(--font); font-size: 15px; font-weight: 700;
+    border: none; cursor: pointer; transition: var(--trans);
+  }
+  .btn-google:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(14,42,51,0.4); }
+  .btn-google svg { width: 21px; height: 21px; flex-shrink: 0; background: #fff; border-radius: 50%; padding: 2px; }
+  .login-note { color: var(--ink-2); font-size: 11px; margin-top: 20px; line-height: 1.6; }
+
+  /* UPDATE BANNER + TOAST */
+  #update-banner {
+    position: fixed; bottom: calc(var(--nav-h) + 18px); left: 50%; transform: translateX(-50%);
+    background: var(--green); color: #fff;
+    padding: 13px 24px; border-radius: 100px;
+    font-weight: 700; font-size: 14px; font-family: var(--font);
+    display: none; align-items: center; gap: 12px;
+    z-index: 9999; cursor: pointer;
+    box-shadow: 0 10px 32px rgba(33,181,126,0.5);
+    animation: fadeUp 0.4s ease; white-space: nowrap;
+  }
+  #update-banner.show { display: flex; }
+
+  /* CONFIRM MODAL */
+  .confirm-box { text-align: center; }
+  .confirm-msg { font-size: 15.5px; color: var(--ink); font-weight: 600; line-height: 1.5; margin-bottom: 22px; }
+
+  @media (max-width: 380px) {
+    .mech-type-grid { grid-template-columns: repeat(2, 1fr); }
+    .stats-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- UPDATE BANNER -->
+<div id="update-banner" onclick="applyUpdate()">🔄 Nuova versione — tocca per aggiornare</div>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">Garage<span>OS</span></div>
+    <div class="login-owner">Luca Soriente</div>
+    <div class="login-sub">Gestisci il tuo parco macchine in famiglia</div>
+    <button class="btn-google" onclick="signInWithGoogle()">
+      <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Accedi con Google
+    </button>
+    <p class="login-note">I tuoi dati sono salvati in modo sicuro su Firebase<br>e accessibili solo dal tuo account Google.</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- TOP -->
+  <div class="app-top">
+    <div>
+      <div class="app-title" id="garage-title">GarageOS</div>
+      <div class="app-role" id="garage-role">—</div>
+    </div>
+    <div class="top-actions" id="header-user-area">
+      <div id="db-status">⏳ Connessione…</div>
+      <img id="user-avatar" class="user-avatar" src="" alt="Utente" style="display:none" onclick="toggleUserMenu()">
+      <div class="user-menu" id="user-menu">
+        <div class="user-menu-header">
+          <div class="user-menu-name" id="menu-user-name">—</div>
+          <div class="user-menu-email" id="menu-user-email">—</div>
+        </div>
+        <div class="user-menu-item" onclick="switchTab('famiglia'); toggleUserMenu(false)"><span class="emoji">👨‍👩‍👧</span> Gestione Famiglia</div>
+        <div class="user-menu-item danger" onclick="signOut()"><span class="emoji">🚪</span> Esci</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AVVISI -->
+  <div class="notif-wrap" id="notif-wrap"></div>
+
+  <!-- HERO (solo tab garage) -->
+  <div class="hero" id="hero">
+    <div class="hero-gauge">
+      <svg viewBox="0 0 200 112">
+        <path d="M 20 100 A 80 80 0 0 1 180 100" stroke="rgba(9,38,46,0.55)" stroke-width="15" fill="none" stroke-linecap="round"/>
+        <path id="gauge-fill" d="M 20 100 A 80 80 0 0 1 180 100" stroke="#4fe3b0" stroke-width="15" fill="none" stroke-linecap="round"
+              stroke-dasharray="251.3" stroke-dashoffset="251.3" style="transition: stroke-dashoffset 1s ease, stroke 0.5s"/>
+      </svg>
+      <div class="hero-num">
+        <div class="n" id="hero-days">—</div>
+        <div class="u" id="hero-unit">giorni</div>
+      </div>
+    </div>
+    <div class="hero-pill" id="hero-pill"><span class="dot"></span><span id="hero-pill-text">Nella norma</span></div>
+    <div class="hero-sub" id="hero-sub">Nessuna scadenza registrata</div>
+  </div>
+
+  <!-- HEAD compatto per altre tab -->
+  <div class="page-head" id="page-head" style="display:none">
+    <div class="page-title" id="page-title"></div>
+    <div class="page-sub" id="page-sub"></div>
+  </div>
+
+  <!-- SHEET -->
+  <div class="sheet">
+
+    <!-- GARAGE -->
+    <div class="section active" id="section-garage">
+      <div class="stats-row" id="stats-row"></div>
+      <div class="vehicle-grid" id="vehicle-grid"></div>
+    </div>
+
+    <!-- SCADENZE -->
+    <div class="section" id="section-scadenze">
+      <div class="filter-row">
+        <select class="filter-select" id="scad-filter-vehicle" onchange="renderScadenze()">
+          <option value="">Tutti i veicoli</option>
+        </select>
+      </div>
+      <div class="scadenze-list" id="scadenze-list"></div>
+    </div>
+
+    <!-- OFFICINA (meccanica + gomme) -->
+    <div class="section" id="section-officina">
+      <div class="seg">
+        <button class="seg-btn active" id="seg-meccanica" onclick="switchSubTab('meccanica')">🔧 Meccanica</button>
+        <button class="seg-btn" id="seg-pneumatici" onclick="switchSubTab('pneumatici')">🛞 Pneumatici</button>
+      </div>
+
+      <div id="subsection-meccanica">
+        <div class="filter-row">
+          <select class="filter-select" id="mech-filter-vehicle" onchange="renderMeccanica()">
+            <option value="">Tutti i veicoli</option>
+          </select>
+          <select class="filter-select" id="mech-filter-type" onchange="renderMeccanica()">
+            <option value="">Tutti i tipi</option>
+          </select>
+        </div>
+        <div id="mech-list"></div>
+      </div>
+
+      <div id="subsection-pneumatici" style="display:none">
+        <div class="filter-row">
+          <select class="filter-select" id="tire-filter-vehicle" onchange="renderPneumatici()">
+            <option value="">Tutti i veicoli</option>
+          </select>
+        </div>
+        <div class="tire-grid" id="tire-grid"></div>
+      </div>
+    </div>
+
+    <!-- FAMIGLIA -->
+    <div class="section" id="section-famiglia">
+      <div class="invite-box" id="invite-box">
+        <div class="invite-title"><span class="emoji">✉️</span> Invita un membro</div>
+        <div class="invite-row">
+          <input type="email" class="invite-input" id="invite-email" placeholder="email@esempio.com">
+          <button class="btn btn-primary btn-sm" onclick="sendInvite()">Invita</button>
+        </div>
+        <div class="share-link-box" id="share-link-box" style="display:none">
+          <span class="share-link-text" id="share-link-text">—</span>
+          <button class="copy-btn" onclick="copyShareLink()">Copia</button>
+        </div>
+        <div id="invite-feedback" style="font-size:12.5px;color:#128a5f;font-weight:600;margin-top:10px;display:none"></div>
+      </div>
+      <div class="section-divider">Membri del garage</div>
+      <div class="family-grid" id="family-grid"></div>
+    </div>
+
+  </div>
+
+  <!-- FAB -->
+  <button id="fab" onclick="fabAction()">＋</button>
+
+  <!-- BOTTOM NAV -->
+  <div class="bottom-nav">
+    <button class="nav-item active" id="nav-garage" onclick="switchTab('garage')">
+      <svg viewBox="0 0 24 24"><path d="M3 11l2-5.5A2 2 0 0 1 6.9 4h10.2a2 2 0 0 1 1.9 1.5L21 11"/><path d="M4 11h16a1 1 0 0 1 1 1v5h-2.5M3 17V12a1 1 0 0 1 1-1"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5"/></svg>
+      Garage
+    </button>
+    <button class="nav-item" id="nav-scadenze" onclick="switchTab('scadenze')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+      Scadenze
+      <span class="nav-badge" id="scad-badge"></span>
+    </button>
+    <button class="nav-item" id="nav-officina" onclick="switchTab('officina')">
+      <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 5.6L3 17.6V21h3.4l5.7-5.7a4.5 4.5 0 0 0 5.6-6l-3 3-2.8-.7-.7-2.8 3-3z"/></svg>
+      Officina
+    </button>
+    <button class="nav-item" id="nav-famiglia" onclick="switchTab('famiglia')">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15.2c2.6.3 4.5 2 4.5 4.8"/></svg>
+      Famiglia
+    </button>
+  </div>
+
+</div>
+
+<!-- MODAL: VEICOLO -->
+<div class="modal-overlay" id="vehicle-modal">
+  <div class="modal">
+    <div class="modal-title" id="vehicle-modal-title">Aggiungi Veicolo</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Targa *</label>
+        <input type="hidden" id="v-edit-id" value="">
+        <input type="text" class="form-input" id="v-plate" placeholder="AB123CD" style="text-transform:uppercase">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tipo</label>
+        <select class="form-select" id="v-type">
+          <option value="auto">🚗 Auto</option>
+          <option value="moto">🏍️ Moto</option>
+          <option value="suv">🚙 SUV</option>
+          <option value="furgone">🚐 Furgone</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Modello *</label>
+      <input type="text" class="form-input" id="v-model" placeholder="es. Volkswagen Golf 1.6 TDI">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Anno</label>
+        <input type="number" class="form-input" id="v-year" placeholder="2020">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Km attuali</label>
+        <input type="number" class="form-input" id="v-km" placeholder="50000">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Data rilevamento km</label>
+      <input type="date" class="form-input" id="v-km-date">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Scadenza Bollo</label>
+        <input type="date" class="form-input" id="v-bollo">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Costo Bollo (€)</label>
+        <input type="number" class="form-input" id="v-bollo-cost" placeholder="es. 180">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Scadenza Revisione</label>
+        <input type="date" class="form-input" id="v-revisione">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Costo Revisione (€)</label>
+        <input type="number" class="form-input" id="v-revisione-cost" placeholder="es. 80">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Scadenza Assicurazione</label>
+        <input type="date" class="form-input" id="v-assicurazione">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Costo Assic. (€)</label>
+        <input type="number" class="form-input" id="v-assicurazione-cost" placeholder="es. 650">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Compagnia Assicurativa</label>
+      <input type="text" class="form-input" id="v-assicurazione-company" placeholder="es. Generali, UnipolSai…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <textarea class="form-textarea" id="v-note" placeholder="Note aggiuntive…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('vehicle-modal')">Annulla</button>
+      <button id="btn-save-vehicle" class="btn btn-primary" onclick="saveVehicle()">Salva Veicolo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PNEUMATICI -->
+<div class="modal-overlay" id="tire-modal">
+  <div class="modal">
+    <div class="modal-title" id="tire-modal-title">Registra Cambio Gomme</div>
+    <div class="form-group">
+      <label class="form-label">Veicolo *</label>
+      <input type="hidden" id="t-edit-id" value="">
+      <select class="form-select" id="t-vehicle"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Stagione *</label>
+        <select class="form-select" id="t-season">
+          <option value="invernale">❄️ Invernale</option>
+          <option value="estivo">☀️ Estivo</option>
+          <option value="allseason">🌦️ 4 Stagioni</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data cambio</label>
+        <input type="date" class="form-input" id="t-date">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Km al cambio</label>
+        <input type="number" class="form-input" id="t-km" placeholder="es. 45000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prossimo cambio (km)</label>
+        <input type="number" class="form-input" id="t-km-next" placeholder="es. 85000">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Marca Gomme</label>
+        <input type="text" class="form-input" id="t-brand" placeholder="es. Michelin">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Misura</label>
+        <input type="text" class="form-input" id="t-size" placeholder="es. 205/55 R16">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Officina / Note</label>
+      <textarea class="form-textarea" id="t-note" placeholder="Note sul cambio…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('tire-modal')">Annulla</button>
+      <button id="btn-save-tire" class="btn btn-primary" onclick="saveTire()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: MECCANICA -->
+<div class="modal-overlay" id="mech-modal">
+  <div class="modal">
+    <div class="modal-title" id="mech-modal-title">Aggiungi Intervento</div>
+    <div class="form-group">
+      <label class="form-label">Veicolo *</label>
+      <input type="hidden" id="m-edit-id" value="">
+      <select class="form-select" id="m-vehicle"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tipi di intervento * <span style="font-weight:500;text-transform:none;letter-spacing:0">(anche più di uno)</span></label>
+      <input type="hidden" id="m-type" value="">
+      <div class="mech-type-grid" id="mech-type-grid"></div>
+      <div id="m-selected-tags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;min-height:0"></div>
+      <div id="m-type-error" style="color:var(--red);font-size:12px;font-weight:600;margin-top:6px;display:none">Seleziona almeno un tipo di intervento</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Data *</label>
+        <input type="date" class="form-input" id="m-date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Km</label>
+        <input type="number" class="form-input" id="m-km" placeholder="es. 60000">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Costo (€)</label>
+        <input type="number" class="form-input" id="m-cost" placeholder="es. 250">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Officina</label>
+        <input type="text" class="form-input" id="m-garage" placeholder="es. Autofficina Rossi">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <textarea class="form-textarea" id="m-note" placeholder="Dettagli intervento…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('mech-modal')">Annulla</button>
+      <button id="btn-save-mech" class="btn btn-primary" onclick="saveMech()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: CONFERMA -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal confirm-box" style="max-width:380px">
+    <div class="confirm-msg" id="confirm-msg">Confermi?</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirm-no">Annulla</button>
+      <button class="btn btn-danger" id="confirm-yes">Conferma</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js';
+import {
+  getFirestore, collection, doc,
+  onSnapshot, setDoc, deleteDoc, query, orderBy, getDoc, arrayUnion
+} from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  onAuthStateChanged, signOut as fbSignOut
+} from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js';
+
+// ===== FIREBASE CONFIG =====
+const firebaseConfig = {
+  apiKey: "AIzaSyDPNSgCqWvfyJ6YSP_E9JU9HufgtwYJfII",
+  authDomain: "garageos-879bc.firebaseapp.com",
+  projectId: "garageos-879bc",
+  storageBucket: "garageos-879bc.firebasestorage.app",
+  messagingSenderId: "388016073061",
+  appId: "1:388016073061:web:8b3dd0073f622bd950598c"
+};
+
+const app  = initializeApp(firebaseConfig);
+const db   = getFirestore(app);
+const auth = getAuth(app);
+const provider = new GoogleAuthProvider();
+
+// ===== STATE =====
+let currentUser = null;
+let garageId    = null;
+let isOwner     = false;
+let currentTab  = 'garage';
+let currentSubTab = 'meccanica';
+let data = { vehicles: [], tires: [], mechs: [], members: [], garageOwner: null };
+let _unsubscribers = [];
+
+// ===== SECURITY: HTML ESCAPING =====
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+// ===== CONFIRM (sostituisce confirm nativo) =====
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('confirm-modal');
+    document.getElementById('confirm-msg').textContent = msg;
+    overlay.classList.add('open');
+    const yes = document.getElementById('confirm-yes');
+    const no  = document.getElementById('confirm-no');
+    const done = val => {
+      overlay.classList.remove('open');
+      yes.onclick = no.onclick = null;
+      resolve(val);
+    };
+    yes.onclick = () => done(true);
+    no.onclick  = () => done(false);
+    overlay.onclick = e => { if (e.target === overlay) done(false); };
+  });
+}
+
+// ===== TOAST =====
+function _showToast(msg, color = 'green') {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = `position:fixed;bottom:calc(74px + 20px);left:50%;transform:translateX(-50%);
+      padding:12px 24px;border-radius:100px;font-weight:700;font-size:14px;z-index:9999;
+      transition:opacity 0.4s;pointer-events:none;box-shadow:0 8px 32px rgba(0,0,0,0.3);max-width:90vw;text-align:center`;
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = color === 'red' ? 'var(--red)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green)';
+  t.style.color = '#fff';
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3200);
+}
+window._showToast = _showToast;
+
+// ===== AUTH =====
+getRedirectResult(auth).then(result => {
+  if (result?.user) localStorage.removeItem('garageos_auth_pending');
+}).catch(e => {
+  localStorage.removeItem('garageos_auth_pending');
+  if (e.code && e.code !== 'auth/no-auth-event') console.error('Redirect result error:', e.code, e.message);
+});
+
+async function signInWithGoogle() {
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    await signInWithPopup(auth, provider);
+    localStorage.removeItem('garageos_auth_pending');
+    return;
+  } catch(e) {
+    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    if (e.code === 'auth/unauthorized-domain') {
+      _showToast('Dominio non autorizzato: aggiungilo in Firebase Console → Authentication → Authorized domains', 'red');
+      return;
+    }
+    console.warn('Popup fallito, uso redirect:', e.code);
+  }
+  try {
+    localStorage.setItem('garageos_auth_pending', '1');
+    const loginBox = document.querySelector('.login-box');
+    if (loginBox) loginBox.innerHTML = `
+      <div class="login-logo">Garage<span>OS</span></div>
+      <div style="color:var(--ink-2);margin-top:20px;font-size:15px;font-weight:700">⏳ Reindirizzamento a Google…</div>
+      <div style="color:var(--ink-2);font-size:12px;margin-top:8px">Verrai riportato sull'app dopo il login</div>`;
+    await signInWithRedirect(auth, provider);
+  } catch(e) {
+    localStorage.removeItem('garageos_auth_pending');
+    _showToast('Errore accesso: ' + e.message, 'red');
+  }
+}
+window.signInWithGoogle = signInWithGoogle;
+
+async function signOutUser() {
+  _unsubscribers.forEach(u => u());
+  _unsubscribers = [];
+  await fbSignOut(auth);
+  currentUser = null; garageId = null;
+  data = { vehicles: [], tires: [], mechs: [], members: [], garageOwner: null };
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('user-avatar').style.display = 'none';
+  toggleUserMenu(false);
+}
+window.signOut = signOutUser;
+
+function toggleUserMenu(force) {
+  const m = document.getElementById('user-menu');
+  if (force === false) { m.classList.remove('open'); return; }
+  m.classList.toggle('open');
+}
+window.toggleUserMenu = toggleUserMenu;
+document.addEventListener('click', e => {
+  if (!e.target.closest('#header-user-area')) toggleUserMenu(false);
+});
+
+onAuthStateChanged(auth, async user => {
+  if (!user) {
+    if (localStorage.getItem('garageos_auth_pending')) {
+      document.getElementById('login-screen').classList.remove('hidden');
+      const loginBox = document.querySelector('.login-box');
+      if (loginBox) loginBox.innerHTML = `
+        <div class="login-logo">Garage<span>OS</span></div>
+        <div style="color:var(--ink-2);margin-top:20px;font-size:15px;font-weight:700">⏳ Accesso in corso…</div>
+        <div style="color:var(--ink-2);font-size:12px;margin-top:8px">Completa il login su Google e torna qui</div>`;
+      return;
+    }
+    document.getElementById('login-screen').classList.remove('hidden');
+    document.getElementById('app').classList.remove('visible');
+    return;
+  }
+  currentUser = user;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.add('visible');
+
+  const avatarEl = document.getElementById('user-avatar');
+  avatarEl.src = user.photoURL || '';
+  avatarEl.style.display = user.photoURL ? '' : 'none';
+  document.getElementById('menu-user-name').textContent = user.displayName || user.email;
+  document.getElementById('menu-user-email').textContent = user.email;
+
+  const joinHandled = await checkJoinLink();
+  if (!joinHandled) {
+    await resolveGarage(user);
+    startListeners();
+  }
+});
+
+// ===== GARAGE RESOLUTION (sicura: nessuna scansione globale) =====
+// Il puntatore users/{uid}.garageId dice a quale garage appartiene l'utente.
+async function resolveGarage(user) {
+  const uref = doc(db, 'users', user.uid);
+  let pointedGarage = null;
+  try {
+    const usnap = await getDoc(uref);
+    if (usnap.exists()) pointedGarage = usnap.data().garageId || null;
+  } catch(e) { console.warn('users doc read failed:', e.code); }
+
+  // Se punta a un garage altrui, verifica di essere ancora membro attivo
+  if (pointedGarage && pointedGarage !== user.uid) {
+    try {
+      const gsnap = await getDoc(doc(db, 'garages', pointedGarage));
+      if (gsnap.exists()) {
+        const uids = gsnap.data().memberUids || [];
+        if (uids.includes(user.uid)) {
+          garageId = pointedGarage;
+          isOwner = false;
+          return;
+        }
+      }
+    } catch(e) { console.warn('garage check failed:', e.code); }
+    // Non più membro: rimuovi il puntatore
+  }
+
+  // Garage proprio
+  garageId = user.uid;
+  isOwner = true;
+  const garageRef = doc(db, 'garages', user.uid);
+  try {
+    const garageSnap = await getDoc(garageRef);
+    if (!garageSnap.exists()) {
+      await setDoc(garageRef, {
+        ownerUid: user.uid,
+        ownerName: user.displayName || user.email,
+        ownerEmail: user.email,
+        ownerPhoto: user.photoURL || '',
+        members: [],
+        memberUids: [],
+        createdAt: new Date().toISOString(),
+      });
+    }
+  } catch(e) { console.error('garage init failed:', e); }
+  try {
+    await setDoc(uref, {
+      garageId: user.uid,
+      email: user.email,
+      name: user.displayName || user.email,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch(e) { console.warn('users doc write failed:', e.code); }
+}
+
+// ===== JOIN LINK =====
+async function checkJoinLink() {
+  const params = new URLSearchParams(window.location.search);
+  const joinId = params.get('join');
+  const joinEmail = params.get('email');
+  if (!joinId || !joinEmail || !currentUser) return false;
+
+  const cleanUrl = () => window.history.replaceState({}, '', window.location.pathname);
+
+  if (currentUser.email.toLowerCase() !== joinEmail.toLowerCase()) {
+    _showToast(`Questo invito è per ${joinEmail}. Sei loggato come ${currentUser.email}.`, 'red');
+    cleanUrl();
+    await resolveGarage(currentUser);
+    startListeners();
+    return true;
+  }
+
+  try {
+    const garageRef = doc(db, 'garages', joinId);
+    const snap = await getDoc(garageRef);
+    if (!snap.exists()) throw new Error('Garage non trovato');
+
+    const members = snap.data().members || [];
+    const idx = members.findIndex(m => m.email === joinEmail.toLowerCase());
+    const me = {
+      email: currentUser.email.toLowerCase(),
+      uid: currentUser.uid,
+      name: currentUser.displayName || currentUser.email,
+      photo: currentUser.photoURL || '',
+      status: 'active',
+      invitedAt: idx >= 0 ? (members[idx].invitedAt || new Date().toISOString()) : new Date().toISOString(),
+    };
+    if (idx >= 0) members[idx] = me; else members.push(me);
+
+    await setDoc(garageRef, { members, memberUids: arrayUnion(currentUser.uid) }, { merge: true });
+    await setDoc(doc(db, 'users', currentUser.uid), {
+      garageId: joinId,
+      email: currentUser.email,
+      name: currentUser.displayName || currentUser.email,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    garageId = joinId;
+    isOwner = false;
+    cleanUrl();
+    startListeners();
+    _showToast('✅ Sei entrato nel garage di famiglia!');
+    return true;
+  } catch(e) {
+    console.error('join failed:', e);
+    _showToast('Invito non valido o scaduto.', 'red');
+    cleanUrl();
+    await resolveGarage(currentUser);
+    startListeners();
+    return true;
+  }
+}
+
+// ===== REAL-TIME LISTENERS =====
+function startListeners() {
+  setStatus('loading');
+  _unsubscribers.forEach(u => u());
+  _unsubscribers = [];
+  const base = `garages/${garageId}`;
+
+  const u1 = onSnapshot(
+    query(collection(db, base + '/vehicles'), orderBy('plate')),
+    snap => {
+      data.vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setStatus('online');
+      renderAll();
+    },
+    err => { console.error(err); setStatus('error'); }
+  );
+  const u2 = onSnapshot(
+    query(collection(db, base + '/tires'), orderBy('date', 'desc')),
+    snap => { data.tires = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderAll(); },
+    err => console.error(err)
+  );
+  const u3 = onSnapshot(
+    query(collection(db, base + '/mechs'), orderBy('date', 'desc')),
+    snap => { data.mechs = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderAll(); },
+    err => console.error(err)
+  );
+  const u4 = onSnapshot(
+    doc(db, 'garages', garageId),
+    snap => {
+      if (!snap.exists()) return;
+      const prevMembers = JSON.stringify(data.members);
+      data.members = snap.data().members || [];
+      data.garageOwner = {
+        name:  snap.data().ownerName,
+        email: snap.data().ownerEmail,
+        photo: snap.data().ownerPhoto,
+        uid:   snap.data().ownerUid
+      };
+      if (prevMembers !== '[]' && prevMembers !== JSON.stringify(data.members)) {
+        const prev = JSON.parse(prevMembers);
+        const newActive = data.members.filter(m => m.status === 'active');
+        const wasActive = prev.filter(m => m.status === 'active');
+        if (newActive.length > wasActive.length) {
+          const joined = newActive.find(nm => !wasActive.some(w => w.email === nm.email));
+          if (joined) _showToast('✅ ' + (joined.name || joined.email) + " è entrato nel garage!");
+        }
+      }
+      renderHeader();
+      renderFamiglia();
+      renderStats();
+    },
+    err => console.error(err)
+  );
+  _unsubscribers = [u1, u2, u3, u4];
+}
+
+// ===== STATUS =====
+function setStatus(state) {
+  const el = document.getElementById('db-status');
+  if (!el) return;
+  const cfg = {
+    loading: { text: '⏳ Connessione…' },
+    online:  { text: '● Sync' },
+    error:   { text: '● Offline' },
+  }[state];
+  el.style.color = state === 'online' ? '#4fe3b0' : state === 'error' ? '#ff9ba0' : 'rgba(255,255,255,0.75)';
+  el.textContent = cfg.text;
+}
+
+// ===== FIRESTORE CRUD =====
+function vDoc(name, id) { return doc(db, `garages/${garageId}/${name}/${id}`); }
+async function addVehicle(v) { const { id, ...rest } = v; await setDoc(vDoc('vehicles', id), rest); }
+async function addTire(t)    { const { id, ...rest } = t; await setDoc(vDoc('tires', id), rest); }
+async function addMech(m)    { const { id, ...rest } = m; await setDoc(vDoc('mechs', id), rest); }
+async function removeVehicle(id) {
+  await deleteDoc(vDoc('vehicles', id));
+  await Promise.all([
+    ...data.tires.filter(t => t.vehicleId === id).map(t => deleteDoc(vDoc('tires', t.id))),
+    ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
+  ]);
+}
+async function removeTire(id) { await deleteDoc(vDoc('tires', id)); }
+async function removeMech(id) { await deleteDoc(vDoc('mechs', id)); }
+
+// ===== FAMIGLIA =====
+async function sendInvite() {
+  const email = document.getElementById('invite-email').value.trim().toLowerCase();
+  if (!email || !email.includes('@')) { _showToast('Inserisci un indirizzo email valido', 'red'); return; }
+  if (!isOwner) { _showToast('Solo il proprietario può invitare membri', 'red'); return; }
+
+  const garageRef = doc(db, 'garages', garageId);
+  const snap = await getDoc(garageRef);
+  const members = snap.data().members || [];
+  if (members.find(m => m.email === email)) { _showToast('Questo utente è già stato invitato', 'yellow'); return; }
+
+  members.push({
+    email, uid: '', name: email.split('@')[0], photo: '',
+    status: 'pending', invitedAt: new Date().toISOString(),
+  });
+  await setDoc(garageRef, { members }, { merge: true });
+
+  const link = `${window.location.href.split('?')[0]}?join=${garageId}&email=${encodeURIComponent(email)}`;
+  document.getElementById('share-link-text').textContent = link;
+  document.getElementById('share-link-box').style.display = 'flex';
+  const fb = document.getElementById('invite-feedback');
+  fb.textContent = '✅ Invito registrato per ' + email + ' — copia il link e mandaglielo!';
+  fb.style.display = 'block';
+  document.getElementById('invite-email').value = '';
+}
+window.sendInvite = sendInvite;
+
+function copyShareLink() {
+  const text = document.getElementById('share-link-text').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = '✅ Copiato!';
+    setTimeout(() => btn.textContent = 'Copia', 2000);
+  });
+}
+window.copyShareLink = copyShareLink;
+
+window.removeMember = async function(email) {
+  if (!await showConfirm(`Rimuovere ${email} dal garage?`)) return;
+  const garageRef = doc(db, 'garages', garageId);
+  const snap = await getDoc(garageRef);
+  const gdata = snap.data();
+  const removed = (gdata.members || []).find(m => m.email === email);
+  const members = (gdata.members || []).filter(m => m.email !== email);
+  const memberUids = (gdata.memberUids || []).filter(u => u !== removed?.uid);
+  await setDoc(garageRef, { members, memberUids }, { merge: true });
+};
+
+// ===== UTILS =====
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  const d = new Date(dateStr); d.setHours(0,0,0,0);
+  return Math.ceil((d - now) / 86400000);
+}
+function badgeClass(days) {
+  if (days === null) return '';
+  if (days <= 10) return 'red';
+  if (days <= 60) return 'yellow';
+  return 'green';
+}
+const TYPE_EMOJI = { auto: '🚗', moto: '🏍️', suv: '🚙', furgone: '🚐' };
+const MECH_TYPES = [
+  { id: 'olio_motore',    icon: '🛢️',  label: 'Olio Motore',              color: '#f59e0b' },
+  { id: 'filtro_olio',    icon: '🔘',  label: 'Filtro Olio',              color: '#f59e0b' },
+  { id: 'filtro_aria',    icon: '💨',  label: 'Filtro Aria',              color: '#60a5fa' },
+  { id: 'filtro_carburante', icon: '⛽', label: 'Filtro Carburante',      color: '#f97316' },
+  { id: 'filtro_abitacolo', icon: '🌬️', label: 'Filtro Abitacolo',       color: '#34d399' },
+  { id: 'candele',        icon: '⚡',  label: 'Candele / Candelette',     color: '#eab308' },
+  { id: 'lavavetri',      icon: '💧',  label: 'Liquido Lavavetri',        color: '#38bdf8' },
+  { id: 'batteria',       icon: '🔋',  label: 'Batteria',                 color: '#22c55e' },
+  { id: 'spazzole',       icon: '🪟',  label: 'Spazzole Tergicristallo',  color: '#64748b' },
+  { id: 'pompa_acqua',    icon: '🌊',  label: 'Pompa Acqua',              color: '#38bdf8' },
+  { id: 'paraflu',        icon: '🧊',  label: "Paraflu'",                 color: '#818cf8' },
+  { id: 'cavi_candele',   icon: '🔌',  label: 'Sost. Cavi Candele',       color: '#eab308' },
+  { id: 'bobina',         icon: '🔆',  label: 'Sostituzione Bobina',      color: '#fb923c' },
+  { id: 'cuffie_giunti',  icon: '🔗',  label: 'Cuffie Giunti',            color: '#a78bfa' },
+  { id: 'bracci_ant',     icon: '🔩',  label: 'Bracci Ant.',              color: '#78909c' },
+  { id: 'bracci_post',    icon: '🔩',  label: 'Bracci Post.',             color: '#78909c' },
+  { id: 'marmitta_centr', icon: '💨',  label: 'Marmitta Centr.',          color: '#6b7280' },
+  { id: 'marmitta_post',  icon: '💨',  label: 'Marmitta Post.',           color: '#6b7280' },
+  { id: 'cinghia_dist',   icon: '⚙️',  label: 'Cinghia Distribuzione',    color: '#f43f5e' },
+  { id: 'cinghia_org',    icon: '⚙️',  label: 'Cinghia Organi Aus.',      color: '#ec4899' },
+  { id: 'freni_ant',      icon: '🛑',  label: 'Freni Anteriori',          color: '#ef4444' },
+  { id: 'freni_post',     icon: '🛑',  label: 'Freni Posteriori',         color: '#dc2626' },
+  { id: 'dischi_ant',     icon: '⭕',  label: 'Dischi Freni Ant.',        color: '#f87171' },
+  { id: 'dischi_post',    icon: '⭕',  label: 'Dischi Freni Post.',       color: '#f87171' },
+  { id: 'tagliando',      icon: '📋',  label: 'Tagliando',                color: '#21b57e' },
+  { id: 'altro',          icon: '🔨',  label: 'Altro Intervento',         color: '#78909c' },
+];
+function getMechType(id) { return MECH_TYPES.find(t => t.id === id) || { icon: '🔧', label: id, color: '#78909c' }; }
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function formatCurrency(n) { return n ? '€ ' + Number(n).toLocaleString('it-IT') : '—'; }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+// Popola filtro tipi meccanica
+document.getElementById('mech-filter-type').innerHTML =
+  '<option value="">Tutti i tipi</option>' +
+  MECH_TYPES.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
+
+// ===== MECH TYPE MULTI-SELECT =====
+let _selectedMechTypes = [];
+function buildMechTypeGrid(selectedIds = []) {
+  _selectedMechTypes = Array.isArray(selectedIds) ? [...selectedIds] : (selectedIds ? [selectedIds] : []);
+  const grid = document.getElementById('mech-type-grid');
+  if (!grid) return;
+  grid.innerHTML = MECH_TYPES.map(t => {
+    const sel = _selectedMechTypes.includes(t.id);
+    return `<button type="button" class="mech-type-btn ${sel ? 'selected' : ''}" data-type="${t.id}">
+      <span class="mt-icon">${t.icon}</span><span>${t.label}</span>
+    </button>`;
+  }).join('');
+  grid.querySelectorAll('.mech-type-btn').forEach(btn =>
+    btn.addEventListener('click', () => toggleMechType(btn.dataset.type)));
+  updateSelectedTags();
+}
+function toggleMechType(id) {
+  const idx = _selectedMechTypes.indexOf(id);
+  if (idx >= 0) _selectedMechTypes.splice(idx, 1); else _selectedMechTypes.push(id);
+  document.getElementById('m-type').value = _selectedMechTypes.join(',');
+  document.getElementById('m-type-error').style.display = 'none';
+  const btn = document.querySelector(`.mech-type-btn[data-type="${id}"]`);
+  if (btn) btn.classList.toggle('selected', _selectedMechTypes.includes(id));
+  updateSelectedTags();
+}
+window.toggleMechType = toggleMechType;
+function updateSelectedTags() {
+  const wrap = document.getElementById('m-selected-tags');
+  if (!wrap) return;
+  wrap.innerHTML = _selectedMechTypes.map(id => {
+    const t = getMechType(id);
+    return `<span class="mech-selected-tag">${t.icon} ${esc(t.label)}
+      <button onclick="toggleMechType('${id}')" title="Rimuovi">×</button></span>`;
+  }).join('');
+}
+
+// ===== MODAL =====
+function openModal(id) {
+  const m = document.getElementById(id);
+  if (id === 'vehicle-modal' && !document.getElementById('v-edit-id').value) {
+    m.querySelectorAll('input:not(#v-edit-id), textarea').forEach(el => { el.value = ''; });
+    const typeEl = document.getElementById('v-type');
+    if (typeEl) typeEl.selectedIndex = 0;
+  }
+  m.classList.add('open');
+  if (id === 'tire-modal') populateVehicleSelect('t-vehicle');
+  if (id === 'mech-modal') {
+    populateVehicleSelect('m-vehicle');
+    if (!document.getElementById('m-edit-id').value) {
+      document.getElementById('m-type').value = '';
+      buildMechTypeGrid([]);
+    }
+  }
+  const today = new Date().toISOString().split('T')[0];
+  m.querySelectorAll('input[type="date"]').forEach(inp => { if (!inp.value) inp.value = today; });
+}
+window.openModal = openModal;
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  if (id === 'vehicle-modal') {
+    document.getElementById('v-edit-id').value = '';
+    document.getElementById('vehicle-modal-title').textContent = 'Aggiungi Veicolo';
+    document.getElementById('btn-save-vehicle').textContent = 'Salva Veicolo';
+  }
+  if (id === 'tire-modal') {
+    document.getElementById('t-edit-id').value = '';
+    document.getElementById('tire-modal-title').textContent = 'Registra Cambio Gomme';
+    document.getElementById('btn-save-tire').textContent = 'Salva';
+  }
+  if (id === 'mech-modal') {
+    document.getElementById('m-edit-id').value = '';
+    document.getElementById('mech-modal-title').textContent = 'Aggiungi Intervento';
+    document.getElementById('btn-save-mech').textContent = 'Salva';
+    buildMechTypeGrid([]);
+  }
+}
+window.closeModal = closeModal;
+document.querySelectorAll('.modal-overlay:not(#confirm-modal)').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+function populateVehicleSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = data.vehicles.length === 0
+    ? '<option value="">— Nessun veicolo —</option>'
+    : data.vehicles.map(v => `<option value="${v.id}">${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+}
+
+// ===== TABS =====
+const TAB_META = {
+  garage:   { title: '',                 sub: '' },
+  scadenze: { title: 'Scadenze',         sub: 'Bollo, revisione e assicurazione' },
+  officina: { title: 'Officina',         sub: 'Interventi meccanici e gomme' },
+  famiglia: { title: 'Garage di Famiglia', sub: 'Condividi il garage con i tuoi familiari' },
+};
+function switchTab(name, vehicleId) {
+  currentTab = name;
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.getElementById('section-' + name).classList.add('active');
+  document.getElementById('nav-' + name).classList.add('active');
+
+  // Hero solo su garage
+  document.getElementById('hero').style.display = name === 'garage' ? '' : 'none';
+  const head = document.getElementById('page-head');
+  if (name === 'garage') { head.style.display = 'none'; }
+  else {
+    head.style.display = '';
+    document.getElementById('page-title').textContent = TAB_META[name].title;
+    document.getElementById('page-sub').textContent = TAB_META[name].sub;
+  }
+
+  // FAB contestuale
+  updateFab();
+
+  if (vehicleId) {
+    if (name === 'scadenze') { const s = document.getElementById('scad-filter-vehicle'); if (s) s.value = vehicleId; }
+    if (name === 'officina') {
+      const s1 = document.getElementById('mech-filter-vehicle'); if (s1) s1.value = vehicleId;
+      const s2 = document.getElementById('tire-filter-vehicle'); if (s2) s2.value = vehicleId;
+    }
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  renderAll();
+}
+window.switchTab = switchTab;
+
+function switchSubTab(name) {
+  currentSubTab = name;
+  document.getElementById('seg-meccanica').classList.toggle('active', name === 'meccanica');
+  document.getElementById('seg-pneumatici').classList.toggle('active', name === 'pneumatici');
+  document.getElementById('subsection-meccanica').style.display = name === 'meccanica' ? '' : 'none';
+  document.getElementById('subsection-pneumatici').style.display = name === 'pneumatici' ? '' : 'none';
+  updateFab();
+}
+window.switchSubTab = switchSubTab;
+
+function updateFab() {
+  const fab = document.getElementById('fab');
+  const show = currentTab === 'garage' || currentTab === 'officina';
+  fab.classList.toggle('show', show);
+}
+function fabAction() {
+  if (currentTab === 'garage') openModal('vehicle-modal');
+  else if (currentTab === 'officina') openModal(currentSubTab === 'meccanica' ? 'mech-modal' : 'tire-modal');
+}
+window.fabAction = fabAction;
+
+// ===== BUTTON LOADING =====
+function setButtonLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.style.opacity = loading ? '0.6' : '1';
+  if (loading) btn.dataset.orig = btn.textContent;
+  btn.textContent = loading ? 'Salvataggio…' : (btn.dataset.orig || 'Salva');
+}
+
+// ===== VEHICLE CRUD =====
+function openEditVehicle(id) {
+  const v = data.vehicles.find(x => x.id === id);
+  if (!v) return;
+  document.getElementById('v-edit-id').value = v.id;
+  document.getElementById('v-plate').value = v.plate || '';
+  document.getElementById('v-model').value = v.model || '';
+  document.getElementById('v-year').value = v.year || '';
+  document.getElementById('v-km').value = v.km || '';
+  document.getElementById('v-km-date').value = v.kmDate || '';
+  document.getElementById('v-bollo').value = v.bollo || '';
+  document.getElementById('v-bollo-cost').value = v.bolloCost || '';
+  document.getElementById('v-revisione').value = v.revisione || '';
+  document.getElementById('v-revisione-cost').value = v.revisioneCost || '';
+  document.getElementById('v-assicurazione').value = v.assicurazione || '';
+  document.getElementById('v-assicurazione-cost').value = v.assicurazioneCost || '';
+  document.getElementById('v-assicurazione-company').value = v.assicurazioneCompany || '';
+  document.getElementById('v-note').value = v.note || '';
+  if (v.type) document.getElementById('v-type').value = v.type;
+  document.getElementById('vehicle-modal-title').textContent = 'Modifica Veicolo';
+  document.getElementById('btn-save-vehicle').textContent = 'Aggiorna Veicolo';
+  openModal('vehicle-modal');
+}
+window.openEditVehicle = openEditVehicle;
+
+async function saveVehicle() {
+  const plate = document.getElementById('v-plate').value.trim().toUpperCase();
+  const model = document.getElementById('v-model').value.trim();
+  if (!plate || !model) { _showToast('Targa e modello sono obbligatori', 'red'); return; }
+  const editId = document.getElementById('v-edit-id').value;
+  const isEdit = !!editId;
+  const existing = isEdit ? data.vehicles.find(x => x.id === editId) : null;
+  const v = {
+    id: isEdit ? editId : uid(),
+    plate, model,
+    type: document.getElementById('v-type').value,
+    year: document.getElementById('v-year').value,
+    km: document.getElementById('v-km').value,
+    kmDate: document.getElementById('v-km-date').value,
+    bollo: document.getElementById('v-bollo').value,
+    bolloCost: document.getElementById('v-bollo-cost').value,
+    revisione: document.getElementById('v-revisione').value,
+    revisioneCost: document.getElementById('v-revisione-cost').value,
+    assicurazione: document.getElementById('v-assicurazione').value,
+    assicurazioneCost: document.getElementById('v-assicurazione-cost').value,
+    assicurazioneCompany: document.getElementById('v-assicurazione-company').value,
+    note: document.getElementById('v-note').value,
+    createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser?.email || '?'),
+    updatedAt: new Date().toISOString(),
+  };
+  setButtonLoading('btn-save-vehicle', true);
+  try {
+    await addVehicle(v);
+    closeModal('vehicle-modal');
+  } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  setButtonLoading('btn-save-vehicle', false);
+}
+window.saveVehicle = saveVehicle;
+
+async function deleteVehicle(id) {
+  if (!await showConfirm('Eliminare questo veicolo e tutti i suoi dati?')) return;
+  try { await removeVehicle(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+}
+window.deleteVehicle = deleteVehicle;
+
+// ===== TIRE CRUD =====
+function openEditTire(id) {
+  const t = data.tires.find(x => x.id === id);
+  if (!t) return;
+  populateVehicleSelect('t-vehicle');
+  document.getElementById('t-edit-id').value = t.id;
+  document.getElementById('t-vehicle').value = t.vehicleId || '';
+  document.getElementById('t-season').value  = t.season   || 'invernale';
+  document.getElementById('t-date').value    = t.date     || '';
+  document.getElementById('t-km').value      = t.km       || '';
+  document.getElementById('t-km-next').value = t.kmNext   || '';
+  document.getElementById('t-brand').value   = t.brand    || '';
+  document.getElementById('t-size').value    = t.size     || '';
+  document.getElementById('t-note').value    = t.note     || '';
+  document.getElementById('tire-modal-title').textContent = 'Modifica Cambio Gomme';
+  document.getElementById('btn-save-tire').textContent = 'Aggiorna';
+  openModal('tire-modal');
+}
+window.openEditTire = openEditTire;
+
+async function saveTire() {
+  const vid = document.getElementById('t-vehicle').value;
+  if (!vid) { _showToast('Seleziona un veicolo', 'red'); return; }
+  const editId = document.getElementById('t-edit-id').value;
+  const isEdit = !!editId;
+  const existing = isEdit ? data.tires.find(x => x.id === editId) : null;
+  const t = {
+    id: isEdit ? editId : uid(),
+    vehicleId: vid,
+    season:  document.getElementById('t-season').value,
+    date:    document.getElementById('t-date').value,
+    km:      document.getElementById('t-km').value,
+    kmNext:  document.getElementById('t-km-next').value,
+    brand:   document.getElementById('t-brand').value,
+    size:    document.getElementById('t-size').value,
+    note:    document.getElementById('t-note').value,
+    createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  setButtonLoading('btn-save-tire', true);
+  try { await addTire(t); closeModal('tire-modal'); }
+  catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  setButtonLoading('btn-save-tire', false);
+}
+window.saveTire = saveTire;
+
+async function deleteTire(id) {
+  if (!await showConfirm('Eliminare questo cambio gomme?')) return;
+  try { await removeTire(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+}
+window.deleteTire = deleteTire;
+
+// ===== MECH CRUD =====
+function openEditMech(id) {
+  const m = data.mechs.find(x => x.id === id);
+  if (!m) return;
+  populateVehicleSelect('m-vehicle');
+  document.getElementById('m-edit-id').value  = m.id;
+  document.getElementById('m-vehicle').value  = m.vehicleId || '';
+  document.getElementById('m-date').value     = m.date      || '';
+  document.getElementById('m-km').value       = m.km        || '';
+  document.getElementById('m-cost').value     = m.cost      || '';
+  document.getElementById('m-garage').value   = m.garage    || '';
+  document.getElementById('m-note').value     = m.note      || '';
+  buildMechTypeGrid(m.type ? [m.type] : []);
+  document.getElementById('m-type').value = m.type || '';
+  document.getElementById('mech-modal-title').textContent = 'Modifica Intervento';
+  document.getElementById('btn-save-mech').textContent = 'Aggiorna';
+  openModal('mech-modal');
+}
+window.openEditMech = openEditMech;
+
+async function saveMech() {
+  const vid    = document.getElementById('m-vehicle').value;
+  const editId = document.getElementById('m-edit-id').value;
+  const isEdit = !!editId;
+  if (!vid) { _showToast('Seleziona un veicolo', 'red'); return; }
+  if (_selectedMechTypes.length === 0) {
+    document.getElementById('m-type-error').style.display = 'block'; return;
+  }
+  const existing = isEdit ? data.mechs.find(x => x.id === editId) : null;
+  const base = {
+    vehicleId: vid,
+    date:   document.getElementById('m-date').value,
+    km:     document.getElementById('m-km').value,
+    cost:   document.getElementById('m-cost').value,
+    garage: document.getElementById('m-garage').value,
+    note:   document.getElementById('m-note').value,
+    createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser?.email || '?'),
+  };
+  setButtonLoading('btn-save-mech', true);
+  try {
+    if (isEdit) {
+      await addMech({ ...base, id: editId, type: _selectedMechTypes[0] });
+    } else {
+      await Promise.all(_selectedMechTypes.map(type => addMech({ ...base, id: uid(), type })));
+    }
+    closeModal('mech-modal');
+    ['m-km','m-cost','m-garage','m-note'].forEach(id => document.getElementById(id).value = '');
+  } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  setButtonLoading('btn-save-mech', false);
+}
+window.saveMech = saveMech;
+
+async function deleteMech(id) {
+  if (!await showConfirm('Eliminare questo intervento?')) return;
+  try { await removeMech(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+}
+window.deleteMech = deleteMech;
+
+// ===== RENDER: HEADER + HERO =====
+function renderHeader() {
+  const owner = data.garageOwner;
+  const title = owner && !isOwner ? `Garage di ${owner.name?.split(' ')[0] || 'famiglia'}` : 'Il mio Garage';
+  document.getElementById('garage-title').innerHTML = esc(title) + ' <span class="caret">▾</span>';
+  document.getElementById('garage-role').textContent = isOwner ? 'Proprietario' : 'Membro';
+}
+
+function nextDeadline() {
+  let best = null;
+  data.vehicles.forEach(v => {
+    [['Bollo', v.bollo], ['Revisione', v.revisione], ['Assicurazione', v.assicurazione]].forEach(([label, date]) => {
+      if (!date) return;
+      const d = daysUntil(date);
+      if (d === null) return;
+      if (!best || d < best.days) best = { days: d, label, plate: v.plate, date };
+    });
+  });
+  return best;
+}
+
+function renderHero() {
+  const el = {
+    days: document.getElementById('hero-days'),
+    unit: document.getElementById('hero-unit'),
+    pill: document.getElementById('hero-pill'),
+    pillText: document.getElementById('hero-pill-text'),
+    sub: document.getElementById('hero-sub'),
+    fill: document.getElementById('gauge-fill'),
+  };
+  const best = nextDeadline();
+  const SEMI = 251.3;
+  if (!best) {
+    el.days.textContent = '—';
+    el.unit.textContent = 'nessuna scadenza';
+    el.pill.className = 'hero-pill';
+    el.pillText.textContent = 'Tutto ok';
+    el.sub.textContent = 'Aggiungi le scadenze dei tuoi veicoli';
+    el.fill.style.strokeDashoffset = SEMI;
+    return;
+  }
+  const d = best.days;
+  el.days.textContent = d < 0 ? Math.abs(d) : d;
+  el.unit.textContent = d < 0 ? (Math.abs(d) === 1 ? 'giorno fa' : 'giorni fa') : (d === 1 ? 'giorno' : 'giorni');
+  const cls = badgeClass(d);
+  el.pill.className = 'hero-pill' + (cls === 'green' ? '' : ' ' + cls);
+  el.pillText.textContent = d < 0 ? 'Scadenza superata!' : cls === 'red' ? 'In scadenza!' : cls === 'yellow' ? 'Scadenza vicina' : 'Nella norma';
+  el.sub.innerHTML = `Prossima: <b>${esc(best.label)}</b> · ${esc(best.plate)} · ${esc(formatDate(best.date))}`;
+  // Riempimento: pieno quando mancano 0 giorni, vuoto a 180+
+  const frac = d < 0 ? 1 : Math.max(0.04, Math.min(1, 1 - d / 180));
+  el.fill.style.strokeDashoffset = SEMI * (1 - frac);
+  el.fill.style.stroke = cls === 'red' ? '#ff7b80' : cls === 'yellow' ? '#ffc555' : '#4fe3b0';
+}
+
+// ===== RENDER: STATS + VEICOLI =====
+function renderStats() {
+  const statsRow = document.getElementById('stats-row');
+  const totalCosts = data.mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const membersN = data.members.filter(m => m.status === 'active').length + 1;
+  statsRow.innerHTML = `
+    <div class="stat-card"><div class="stat-value">${data.vehicles.length}</div><div class="stat-label">Veicoli</div></div>
+    <div class="stat-card"><div class="stat-value">${data.mechs.length}</div><div class="stat-label">Interventi</div></div>
+    <div class="stat-card"><div class="stat-value accent">€${Math.round(totalCosts).toLocaleString('it-IT')}</div><div class="stat-label">Costi totali</div></div>
+    <div class="stat-card"><div class="stat-value">${membersN}</div><div class="stat-label">Membri</div></div>`;
+}
+
+function vehicleBadges(v, compact = false) {
+  const parts = [];
+  const mk = (label, date, cost, company) => {
+    const d = daysUntil(date);
+    if (d === null) return;
+    const cls = badgeClass(d);
+    const costStr = !compact && cost ? ' · €' + Number(cost).toLocaleString('it-IT') : '';
+    const compStr = !compact && company ? ' ' + esc(company) : '';
+    parts.push(`<span class="badge ${cls}"><span class="status-dot"></span>${esc(label)}${compStr}: ${d >= 0 ? d + 'gg' : 'SCADUTO'}${costStr}</span>`);
+  };
+  mk('Bollo', v.bollo, v.bolloCost);
+  mk('Revisione', v.revisione, v.revisioneCost);
+  mk('Assic.', v.assicurazione, v.assicurazioneCost, v.assicurazioneCompany);
+  return parts.join('');
+}
+
+function renderDashboard() {
+  renderStats();
+  renderHero();
+  const grid = document.getElementById('vehicle-grid');
+  if (data.vehicles.length === 0) {
+    grid.innerHTML = `<div class="add-vehicle-card" onclick="openModal('vehicle-modal')"><div class="add-icon emoji">🚗</div><span>Aggiungi il tuo primo veicolo</span></div>`;
+    return;
+  }
+  grid.innerHTML = data.vehicles.map(v => {
+    const addedBy = v.addedBy ? `<div style="font-size:11.5px;color:var(--ink-2);margin-top:5px">Aggiunto da ${esc(v.addedBy)}</div>` : '';
+    return `
+      <div class="vehicle-card">
+        <div class="vc-header">
+          <div>
+            <div style="font-size:26px;line-height:1;margin-bottom:8px" class="emoji">${TYPE_EMOJI[v.type] || '🚗'}</div>
+            <span class="vc-plate">${esc(v.plate)}</span>
+          </div>
+          <div style="display:flex;gap:7px">
+            <button class="icon-btn" onclick="openEditVehicle('${v.id}')" title="Modifica">✏️</button>
+            <button class="icon-btn danger" onclick="deleteVehicle('${v.id}')" title="Elimina">🗑️</button>
+          </div>
+        </div>
+        <div class="vc-model">${esc(v.model)}</div>
+        <div class="vc-meta">${v.year ? esc(v.year) + ' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT') + ' km' : ''}${v.kmDate ? ' <span style="opacity:0.65">al ' + esc(formatDate(v.kmDate)) + '</span>' : ''}</div>
+        ${addedBy}
+        <div class="vc-badges">${vehicleBadges(v)}</div>
+        <div class="vc-actions">
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze','${v.id}')">📅 Scadenze</button>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('officina','${v.id}')">🔧 Storico</button>
+        </div>
+      </div>`;
+  }).join('') + `<div class="add-vehicle-card" onclick="openModal('vehicle-modal')"><div class="add-icon">＋</div><span>Aggiungi veicolo</span></div>`;
+}
+
+// ===== RENDER: SCADENZE =====
+function renderScadenze() {
+  const sel = document.getElementById('scad-filter-vehicle');
+  const filterV = sel.value;
+  const list = document.getElementById('scadenze-list');
+  sel.innerHTML = '<option value="">Tutti i veicoli</option>' +
+    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+  let items = [];
+  data.vehicles.filter(v => !filterV || v.id === filterV).forEach(v => {
+    if (v.bollo) items.push({ vehicle: v, date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
+    if (v.revisione) items.push({ vehicle: v, date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
+    if (v.assicurazione) items.push({ vehicle: v, date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
+  });
+  if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
+  items.sort((a, b) => new Date(a.date) - new Date(b.date));
+  const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
+  const softs = { green: 'var(--green-soft)', yellow: 'var(--yellow-soft)', red: 'var(--red-soft)' };
+  list.innerHTML = items.map(item => {
+    const days = daysUntil(item.date);
+    const cls = badgeClass(days) || 'green';
+    const daysText = days === null ? '?' : days < 0 ? 'SCADUTO' : days === 0 ? 'OGGI' : days + ' gg';
+    const pct = days === null ? 100 : Math.max(3, Math.min(100, 100 - (days / 365) * 100));
+    return `<div class="scadenza-item">
+      <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
+      <div class="sc-info">
+        <div class="sc-title">${esc(item.label)} — ${esc(item.vehicle.plate)}${item.cost ? ` <span style="color:var(--green);font-size:13px">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-sub">${esc(item.vehicle.model)} · Scade: ${esc(formatDate(item.date))}</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
+      </div>
+      <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+    </div>`;
+  }).join('');
+}
+window.renderScadenze = renderScadenze;
+
+// ===== RENDER: PNEUMATICI =====
+function renderPneumatici() {
+  const sel = document.getElementById('tire-filter-vehicle');
+  const filterV = sel.value;
+  const grid = document.getElementById('tire-grid');
+  sel.innerHTML = '<option value="">Tutti i veicoli</option>' +
+    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+  const tires = data.tires.filter(t => !filterV || t.vehicleId === filterV).sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (tires.length === 0) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🛞</div><p>Nessun cambio gomme registrato.</p></div>`; return; }
+  grid.innerHTML = tires.map(t => {
+    const v = data.vehicles.find(v => v.id === t.vehicleId);
+    const vLabel = v ? `${esc(v.plate)} — ${esc(v.model)}` : 'Veicolo rimosso';
+    const seasonLabel = { invernale: '❄️ Invernale', estivo: '☀️ Estivo', allseason: '🌦️ 4 Stagioni' }[t.season] || esc(t.season);
+    return `<div class="tire-card">
+      <div class="tire-header">
+        <div class="tire-icon-e" style="font-size:24px">🛞</div>
+        <div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">${vLabel}</div></div>
+        <span class="tire-season ${esc(t.season)}">${seasonLabel}</span>
+        <div style="display:flex;gap:6px">
+          <button class="icon-btn" onclick="openEditTire('${t.id}')">✏️</button>
+          <button class="icon-btn danger" onclick="deleteTire('${t.id}')">🗑️</button>
+        </div>
+      </div>
+      <div class="tire-detail">📅 <strong>${esc(formatDate(t.date))}</strong>${t.km ? ' · ' + Number(t.km).toLocaleString('it-IT') + ' km' : ''}</div>
+      ${t.brand ? `<div class="tire-detail">🏷️ <strong>${esc(t.brand)}</strong>${t.size ? ' — ' + esc(t.size) : ''}</div>` : ''}
+      ${t.kmNext ? `<div class="tire-detail">⏭️ Prossimo: <strong>${Number(t.kmNext).toLocaleString('it-IT')} km</strong></div>` : ''}
+      ${t.note ? `<div class="tire-detail" style="font-size:12.5px;margin-top:8px">${esc(t.note)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+window.renderPneumatici = renderPneumatici;
+
+// ===== RENDER: MECCANICA =====
+function mechItemHTML(m) {
+  const v = data.vehicles.find(v => v.id === m.vehicleId);
+  const vLabel = v ? `${esc(v.plate)} — ${esc(v.model)}` : 'Veicolo rimosso';
+  const mt = getMechType(m.type);
+  return `<div class="mech-item">
+    <div class="mech-icon-wrap" style="background:${mt.color}1c">${mt.icon}</div>
+    <div class="mech-info">
+      <div class="mech-title">${esc(mt.label)}</div>
+      <div class="mech-sub">${vLabel} · ${esc(formatDate(m.date))}${m.km ? ' · ' + Number(m.km).toLocaleString('it-IT') + ' km' : ''}${m.garage ? ' · 🏪 ' + esc(m.garage) : ''}</div>
+      ${m.note ? `<div class="mech-note">${esc(m.note)}</div>` : ''}
+      ${m.addedBy ? `<div style="font-size:11px;color:var(--ink-2);margin-top:4px">${esc(m.addedBy)}</div>` : ''}
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+      <div class="mech-cost">${formatCurrency(m.cost)}</div>
+      <div style="display:flex;gap:6px">
+        <button class="icon-btn" onclick="openEditMech('${m.id}')">✏️</button>
+        <button class="icon-btn danger" onclick="deleteMech('${m.id}')">🗑️</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleYearGroup(year) {
+  const header = document.getElementById('yh-' + year);
+  const body   = document.getElementById('yb-' + year);
+  if (!header || !body) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  header.classList.toggle('open', !isOpen);
+}
+window.toggleYearGroup = toggleYearGroup;
+
+function renderMeccanica() {
+  const selV = document.getElementById('mech-filter-vehicle');
+  const selT = document.getElementById('mech-filter-type');
+  const filterV = selV.value, filterT = selT.value;
+  const list = document.getElementById('mech-list');
+  selV.innerHTML = '<option value="">Tutti i veicoli</option>' +
+    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+
+  let mechs = data.mechs
+    .filter(m => (!filterV || m.vehicleId === filterV) && (!filterT || m.type === filterT))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  if (mechs.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">🔧</div><p>Nessun intervento registrato.</p></div>`;
+    return;
+  }
+
+  const byYear = {};
+  mechs.forEach(m => {
+    const yr = m.date ? new Date(m.date).getFullYear() : 'N/D';
+    (byYear[yr] = byYear[yr] || []).push(m);
+  });
+  const years = Object.keys(byYear).sort((a, b) => b - a);
+  const totalCost = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+
+  let html = `<div class="mech-summary">${mechs.length} interventi · ${years.length} ${years.length === 1 ? 'anno' : 'anni'} · Totale: <strong>€${totalCost.toLocaleString('it-IT')}</strong></div>`;
+  years.forEach((yr, idx) => {
+    const items = byYear[yr];
+    const yrCost = items.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    const isCurrentYear = yr == new Date().getFullYear();
+    const autoOpen = idx === 0 || isCurrentYear;
+    html += `<div class="year-group">
+      <div class="year-header ${autoOpen ? 'open' : ''}" id="yh-${yr}" onclick="toggleYearGroup('${yr}')">
+        <div class="year-header-left">
+          <span class="year-label">${yr}</span>
+          <span class="year-count">${items.length}</span>
+          ${isCurrentYear ? `<span style="font-size:11px;color:var(--green);font-weight:800">● in corso</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:14px">
+          ${yrCost > 0 ? `<span class="year-cost">€${yrCost.toLocaleString('it-IT')}</span>` : ''}
+          <span class="year-chevron">▼</span>
+        </div>
+      </div>
+      <div class="year-body ${autoOpen ? 'open' : ''}" id="yb-${yr}">
+        ${items.map(m => mechItemHTML(m)).join('')}
+      </div>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+window.renderMeccanica = renderMeccanica;
+
+// ===== RENDER: FAMIGLIA =====
+function renderFamiglia() {
+  const grid = document.getElementById('family-grid');
+  if (!grid) return;
+  const owner = data.garageOwner;
+  const members = data.members || [];
+  let html = '';
+  if (owner) {
+    const isMe = currentUser && owner.uid === currentUser.uid;
+    html += `<div class="family-card">
+      ${owner.photo ? `<img class="family-avatar" src="${esc(owner.photo)}" alt="">` : `<div class="family-avatar-placeholder">👤</div>`}
+      <div class="family-info">
+        <div class="family-name">${esc(owner.name)}${isMe ? ' <span style="color:var(--green);font-size:11px">(tu)</span>' : ''}</div>
+        <div class="family-email">${esc(owner.email)}</div>
+      </div>
+      <span class="family-role owner">👑 Proprietario</span>
+    </div>`;
+  }
+  members.filter(m => m.status === 'active').forEach(m => {
+    const isMe = currentUser && m.uid === currentUser.uid;
+    html += `<div class="family-card">
+      ${m.photo ? `<img class="family-avatar" src="${esc(m.photo)}" alt="">` : `<div class="family-avatar-placeholder">👤</div>`}
+      <div class="family-info">
+        <div class="family-name">${esc(m.name)}${isMe ? ' <span style="color:var(--green);font-size:11px">(tu)</span>' : ''}</div>
+        <div class="family-email">${esc(m.email)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <span class="family-role member">Membro</span>
+        ${isOwner ? `<button class="btn btn-danger btn-sm" onclick="removeMember('${esc(m.email)}')">Rimuovi</button>` : ''}
+      </div>
+    </div>`;
+  });
+  members.filter(m => m.status === 'pending').forEach(m => {
+    html += `<div class="family-card">
+      <div class="family-avatar-placeholder">✉️</div>
+      <div class="family-info">
+        <div class="family-name">${esc(m.email)}</div>
+        <div class="family-email">Invitato il ${esc(formatDate(m.invitedAt))}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <span class="family-role pending">In attesa</span>
+        ${isOwner ? `<button class="btn btn-danger btn-sm" onclick="removeMember('${esc(m.email)}')">Annulla</button>` : ''}
+      </div>
+    </div>`;
+  });
+  grid.innerHTML = html || '<div style="color:var(--ink-2);font-size:13px">Nessun membro ancora.</div>';
+  document.getElementById('invite-box').style.display = isOwner ? '' : 'none';
+}
+
+// ===== RENDER: AVVISI =====
+function renderNotifications() {
+  const wrap = document.getElementById('notif-wrap');
+  const chips = [];
+  data.vehicles.forEach(v => {
+    const checks = [['Bollo', daysUntil(v.bollo)], ['Revisione', daysUntil(v.revisione)], ['Assic.', daysUntil(v.assicurazione)]];
+    checks.forEach(([label, d]) => {
+      if (d !== null && d <= 30) chips.push({
+        cls: d <= 10 ? 'red' : 'yellow',
+        text: `${esc(v.plate)} · ${label}: ${d <= 0 ? 'SCADUTO' : d + 'gg'}`
+      });
+    });
+  });
+  const badge = document.getElementById('scad-badge');
+  if (chips.length > 0) { badge.textContent = chips.length; badge.classList.add('show'); }
+  else badge.classList.remove('show');
+
+  if (chips.length === 0 || currentTab !== 'garage') { wrap.classList.remove('has'); wrap.innerHTML = ''; return; }
+  wrap.classList.add('has');
+  wrap.innerHTML = chips.map(c => `<span class="notif-chip ${c.cls}" onclick="switchTab('scadenze')">${c.text}</span>`).join('');
+}
+
+// ===== RENDER ALL =====
+function renderAll() {
+  renderHeader();
+  renderDashboard();
+  renderScadenze();
+  renderPneumatici();
+  renderMeccanica();
+  renderFamiglia();
+  renderNotifications();
+}
+
+// ===== INIT =====
+setStatus('loading');
+updateFab();
+renderAll();
+</script>
+
+<script>
+// ===== SERVICE WORKER =====
+let _swWaiting = null;
+function applyUpdate() {
+  if (_swWaiting) { _swWaiting.postMessage({ type: 'SKIP_WAITING' }); }
+  else { window.location.reload(); }
+}
+window.applyUpdate = applyUpdate;
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    reg.update();
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          _swWaiting = newWorker;
+          document.getElementById('update-banner').classList.add('show');
+        }
+      });
+    });
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      _swWaiting = reg.waiting;
+      document.getElementById('update-banner').classList.add('show');
+    }
+  }).catch(err => console.log('SW registration failed:', err));
+  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload());
+}
+</script>
+</body>
+</html>
