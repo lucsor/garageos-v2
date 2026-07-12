@@ -76,7 +76,7 @@
     padding: calc(18px + env(safe-area-inset-top)) 24px 6px;
     display: flex; align-items: flex-start; justify-content: space-between;
   }
-  .app-title { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.15; }
+  .app-title { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.15; cursor: pointer; }
   .app-title .caret { font-size: 14px; opacity: 0.85; margin-left: 4px; }
   .app-role { color: #4fe3b0; font-size: 14px; font-weight: 600; margin-top: 2px; }
   .top-actions { display: flex; align-items: center; gap: 10px; position: relative; }
@@ -111,21 +111,12 @@
   .user-menu-item:hover { background: var(--field); }
   .user-menu-item.danger { color: var(--red); }
 
-  /* ===== HERO (gauge) ===== */
-  .hero { text-align: center; padding: 6px 24px 0; }
-  .hero-gauge { position: relative; width: min(320px, 78vw); margin: 0 auto; }
-  .hero-gauge svg { width: 100%; display: block; }
-  .hero-num {
-    position: absolute; inset: 0; top: 22%;
-    display: flex; flex-direction: column; align-items: center;
-    color: #fff; pointer-events: none;
-  }
-  .hero-num .n { font-size: 64px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
-  .hero-num .u { font-size: 17px; font-weight: 500; opacity: 0.8; margin-top: 4px; }
+  /* ===== HERO ===== */
+  .hero { text-align: center; padding: 18px 24px 4px; }
   .hero-pill {
     display: inline-flex; align-items: center; gap: 8px;
     background: var(--navy); border-radius: 100px;
-    padding: 10px 22px; margin-top: -20px;
+    padding: 10px 22px;
     font-size: 16px; font-weight: 700; color: #4fe3b0;
     position: relative; z-index: 2;
   }
@@ -358,9 +349,11 @@
   /* FAMIGLIA */
   .family-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px; }
   @media (min-width: 560px) { .family-grid { grid-template-columns: 1fr 1fr; } }
+  .family-grid > * { min-width: 0; }
   .family-card {
     background: var(--card); border-radius: var(--radius); padding: 16px 18px;
     display: flex; align-items: center; gap: 13px; box-shadow: var(--shadow);
+    min-width: 0; overflow: hidden;
   }
   .family-avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--line); }
   .family-avatar-placeholder {
@@ -368,8 +361,8 @@
     background: var(--field); display: flex; align-items: center; justify-content: center;
     font-size: 20px; font-family: "Apple Color Emoji","Segoe UI Emoji",sans-serif;
   }
-  .family-info { flex: 1; min-width: 0; }
-  .family-name { font-weight: 800; font-size: 15px; color: var(--ink); }
+  .family-info { flex: 1; min-width: 0; overflow: hidden; }
+  .family-name { font-weight: 800; font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .family-email { color: var(--ink-2); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .family-role { padding: 4px 11px; border-radius: 100px; font-size: 11px; font-weight: 800; white-space: nowrap; }
   .family-role.owner { background: var(--yellow-soft); color: #b57608; }
@@ -563,7 +556,7 @@
   <!-- TOP -->
   <div class="app-top">
     <div>
-      <div class="app-title" id="garage-title">GarageOS</div>
+      <div class="app-title" id="garage-title" onclick="openGarageName()">GarageOS</div>
       <div class="app-role" id="garage-role">—</div>
     </div>
     <div class="top-actions" id="header-user-area">
@@ -585,17 +578,6 @@
 
   <!-- HERO (solo tab garage) -->
   <div class="hero" id="hero">
-    <div class="hero-gauge">
-      <svg viewBox="0 0 200 112">
-        <path d="M 20 100 A 80 80 0 0 1 180 100" stroke="rgba(9,38,46,0.55)" stroke-width="15" fill="none" stroke-linecap="round"/>
-        <path id="gauge-fill" d="M 20 100 A 80 80 0 0 1 180 100" stroke="#4fe3b0" stroke-width="15" fill="none" stroke-linecap="round"
-              stroke-dasharray="251.3" stroke-dashoffset="251.3" style="transition: stroke-dashoffset 1s ease, stroke 0.5s"/>
-      </svg>
-      <div class="hero-num">
-        <div class="n" id="hero-days">—</div>
-        <div class="u" id="hero-unit">giorni</div>
-      </div>
-    </div>
     <div class="hero-pill" id="hero-pill"><span class="dot"></span><span id="hero-pill-text">Nella norma</span></div>
     <div class="hero-sub" id="hero-sub">Nessuna scadenza registrata</div>
   </div>
@@ -880,6 +862,21 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('mech-modal')">Annulla</button>
       <button id="btn-save-mech" class="btn btn-primary" onclick="saveMech()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: NOME GARAGE -->
+<div class="modal-overlay" id="garage-name-modal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title">Nome del garage</div>
+    <div class="form-group">
+      <label class="form-label">Nome</label>
+      <input type="text" class="form-input" id="g-name" placeholder="es. Garage Soriente" maxlength="30">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('garage-name-modal')">Annulla</button>
+      <button id="btn-save-gname" class="btn btn-primary" onclick="saveGarageName()">Salva</button>
     </div>
   </div>
 </div>
@@ -1209,6 +1206,7 @@ function startListeners() {
       if (!snap.exists()) return;
       const prevMembers = JSON.stringify(data.members);
       data.members = snap.data().members || [];
+      data.garageName = snap.data().garageName || '';
       data.garageOwner = {
         name:  snap.data().ownerName,
         email: snap.data().ownerEmail,
@@ -1702,10 +1700,32 @@ window.deleteMech = deleteMech;
 // ===== RENDER: HEADER + HERO =====
 function renderHeader() {
   const owner = data.garageOwner;
-  const title = owner && !isOwner ? `Garage di ${owner.name?.split(' ')[0] || 'famiglia'}` : 'Il mio Garage';
-  document.getElementById('garage-title').innerHTML = esc(title) + ' <span class="caret">▾</span>';
+  const fallback = owner && !isOwner ? `Garage di ${owner.name?.split(' ')[0] || 'famiglia'}` : 'Il mio Garage';
+  const title = data.garageName || fallback;
+  document.getElementById('garage-title').innerHTML = esc(title) + (isOwner ? ' <span class="caret" title="Rinomina">✎</span>' : '');
   document.getElementById('garage-role').textContent = isOwner ? 'Proprietario' : 'Membro';
 }
+
+// ===== NOME GARAGE =====
+function openGarageName() {
+  if (!isOwner) return;
+  document.getElementById('g-name').value = data.garageName || '';
+  openModal('garage-name-modal');
+}
+window.openGarageName = openGarageName;
+
+async function saveGarageName() {
+  const name = document.getElementById('g-name').value.trim();
+  setButtonLoading('btn-save-gname', true);
+  try {
+    await setDoc(doc(db, 'garages', garageId), { garageName: name }, { merge: true });
+    closeModal('garage-name-modal');
+    data.garageName = name;
+    renderHeader();
+  } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  setButtonLoading('btn-save-gname', false);
+}
+window.saveGarageName = saveGarageName;
 
 function nextDeadline() {
   let best = null;
@@ -1721,36 +1741,24 @@ function nextDeadline() {
 }
 
 function renderHero() {
-  const el = {
-    days: document.getElementById('hero-days'),
-    unit: document.getElementById('hero-unit'),
-    pill: document.getElementById('hero-pill'),
-    pillText: document.getElementById('hero-pill-text'),
-    sub: document.getElementById('hero-sub'),
-    fill: document.getElementById('gauge-fill'),
-  };
+  const pill = document.getElementById('hero-pill');
+  const pillText = document.getElementById('hero-pill-text');
+  const sub = document.getElementById('hero-sub');
   const best = nextDeadline();
-  const SEMI = 251.3;
   if (!best) {
-    el.days.textContent = '—';
-    el.unit.textContent = 'nessuna scadenza';
-    el.pill.className = 'hero-pill';
-    el.pillText.textContent = 'Tutto ok';
-    el.sub.textContent = 'Aggiungi le scadenze dei tuoi veicoli';
-    el.fill.style.strokeDashoffset = SEMI;
+    pill.className = 'hero-pill';
+    pillText.textContent = 'Tutto ok';
+    sub.textContent = 'Aggiungi le scadenze dei tuoi veicoli';
     return;
   }
   const d = best.days;
-  el.days.textContent = d < 0 ? Math.abs(d) : d;
-  el.unit.textContent = d < 0 ? (Math.abs(d) === 1 ? 'giorno fa' : 'giorni fa') : (d === 1 ? 'giorno' : 'giorni');
   const cls = badgeClass(d);
-  el.pill.className = 'hero-pill' + (cls === 'green' ? '' : ' ' + cls);
-  el.pillText.textContent = d < 0 ? 'Scadenza superata!' : cls === 'red' ? 'In scadenza!' : cls === 'yellow' ? 'Scadenza vicina' : 'Nella norma';
-  el.sub.innerHTML = `Prossima: <b>${esc(best.label)}</b> · ${esc(best.plate)} · ${esc(formatDate(best.date))}`;
-  // Riempimento: pieno quando mancano 0 giorni, vuoto a 180+
-  const frac = d < 0 ? 1 : Math.max(0.04, Math.min(1, 1 - d / 180));
-  el.fill.style.strokeDashoffset = SEMI * (1 - frac);
-  el.fill.style.stroke = cls === 'red' ? '#ff7b80' : cls === 'yellow' ? '#ffc555' : '#4fe3b0';
+  pill.className = 'hero-pill' + (cls === 'green' ? '' : ' ' + cls);
+  pillText.textContent = d < 0 ? 'Scadenza superata!' : cls === 'red' ? 'In scadenza!' : cls === 'yellow' ? 'Scadenza vicina' : 'Nella norma';
+  const when = d < 0 ? `${Math.abs(d)} ${Math.abs(d) === 1 ? 'giorno' : 'giorni'} fa`
+             : d === 0 ? 'oggi'
+             : `tra ${d} ${d === 1 ? 'giorno' : 'giorni'}`;
+  sub.innerHTML = `Prossima: <b>${esc(best.label)}</b> · ${esc(best.plate)} · ${esc(formatDate(best.date))} (${when})`;
 }
 
 // ===== RENDER: STATS + VEICOLI =====

@@ -1,6 +1,6 @@
 // ===== GarageOS Service Worker =====
 // Aggiorna questo numero ogni volta che carichi una nuova versione!
-const VERSION = '2.0.0';
+const VERSION = '2.0.1';
 const CACHE_NAME = 'garageos-v' + VERSION;
 
 // File da cachare per uso offline (path RELATIVI: funzionano ovunque sia hostata l'app)
