@@ -213,6 +213,9 @@
   .badge.red    { background: var(--red-soft);    color: var(--red); }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
   .vc-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .vehicle-card.frozen { opacity: 0.75; }
+  .vehicle-card.frozen .vc-model { color: var(--ink-2); }
+  .badge.frozen { background: var(--blue-soft); color: var(--blue); }
 
   .icon-btn {
     background: var(--field); border: none; color: var(--ink-2);
@@ -757,6 +760,16 @@
     <div class="form-group">
       <label class="form-label">Note</label>
       <textarea class="form-textarea" id="v-note" placeholder="Note aggiuntive…"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Stato veicolo</label>
+      <select class="form-select" id="v-frozen">
+        <option value="">✅ Attivo</option>
+        <option value="1">🧊 Congelato (venduto/dismesso)</option>
+      </select>
+      <div style="font-size:12px;color:var(--ink-2);margin-top:6px;line-height:1.5">
+        Un veicolo congelato conserva tutto lo storico (interventi, gomme, costi) ma le sue scadenze non generano più avvisi.
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('vehicle-modal')">Annulla</button>
@@ -1446,7 +1459,7 @@ function populateVehicleSelect(selectId) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = data.vehicles.length === 0
     ? '<option value="">— Nessun veicolo —</option>'
-    : data.vehicles.map(v => `<option value="${v.id}">${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+    : data.vehicles.map(v => `<option value="${v.id}">${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
 }
 
 // ===== TABS =====
@@ -1537,6 +1550,7 @@ function openEditVehicle(id) {
   document.getElementById('v-assicurazione-cost').value = v.assicurazioneCost || '';
   document.getElementById('v-assicurazione-company').value = v.assicurazioneCompany || '';
   document.getElementById('v-note').value = v.note || '';
+  document.getElementById('v-frozen').value = v.frozen ? '1' : '';
   if (v.type) document.getElementById('v-type').value = v.type;
   document.getElementById('vehicle-modal-title').textContent = 'Modifica Veicolo';
   document.getElementById('btn-save-vehicle').textContent = 'Aggiorna Veicolo';
@@ -1566,6 +1580,9 @@ async function saveVehicle() {
     assicurazioneCost: document.getElementById('v-assicurazione-cost').value,
     assicurazioneCompany: document.getElementById('v-assicurazione-company').value,
     note: document.getElementById('v-note').value,
+    frozen: document.getElementById('v-frozen').value === '1',
+    frozenAt: document.getElementById('v-frozen').value === '1'
+      ? (existing?.frozenAt || new Date().toISOString()) : '',
     createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser?.email || '?'),
     updatedAt: new Date().toISOString(),
@@ -1729,7 +1746,7 @@ window.saveGarageName = saveGarageName;
 
 function nextDeadline() {
   let best = null;
-  data.vehicles.forEach(v => {
+  data.vehicles.filter(v => !v.frozen).forEach(v => {
     [['Bollo', v.bollo], ['Revisione', v.revisione], ['Assicurazione', v.assicurazione]].forEach(([label, date]) => {
       if (!date) return;
       const d = daysUntil(date);
@@ -1766,8 +1783,10 @@ function renderStats() {
   const statsRow = document.getElementById('stats-row');
   const totalCosts = data.mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
   const membersN = data.members.filter(m => m.status === 'active').length + 1;
+  const frozenN = data.vehicles.filter(v => v.frozen).length;
+  const activeN = data.vehicles.length - frozenN;
   statsRow.innerHTML = `
-    <div class="stat-card"><div class="stat-value">${data.vehicles.length}</div><div class="stat-label">Veicoli</div></div>
+    <div class="stat-card"><div class="stat-value">${activeN}</div><div class="stat-label">Veicoli${frozenN ? ` (+${frozenN} 🧊)` : ''}</div></div>
     <div class="stat-card"><div class="stat-value">${data.mechs.length}</div><div class="stat-label">Interventi</div></div>
     <div class="stat-card"><div class="stat-value accent">€${Math.round(totalCosts).toLocaleString('it-IT')}</div><div class="stat-label">Costi totali</div></div>
     <div class="stat-card"><div class="stat-value">${membersN}</div><div class="stat-label">Membri</div></div>`;
@@ -1797,10 +1816,14 @@ function renderDashboard() {
     grid.innerHTML = `<div class="add-vehicle-card" onclick="openModal('vehicle-modal')"><div class="add-icon emoji">🚗</div><span>Aggiungi il tuo primo veicolo</span></div>`;
     return;
   }
-  grid.innerHTML = data.vehicles.map(v => {
+  const sorted = [...data.vehicles].sort((a, b) => (a.frozen ? 1 : 0) - (b.frozen ? 1 : 0));
+  grid.innerHTML = sorted.map(v => {
     const addedBy = v.addedBy ? `<div style="font-size:11.5px;color:var(--ink-2);margin-top:5px">Aggiunto da ${esc(v.addedBy)}</div>` : '';
+    const frozenBadge = v.frozen
+      ? `<span class="badge frozen">🧊 Congelato${v.frozenAt ? ' dal ' + esc(formatDate(v.frozenAt)) : ''}</span>`
+      : '';
     return `
-      <div class="vehicle-card">
+      <div class="vehicle-card${v.frozen ? ' frozen' : ''}">
         <div class="vc-header">
           <div>
             <div style="font-size:26px;line-height:1;margin-bottom:8px" class="emoji">${TYPE_EMOJI[v.type] || '🚗'}</div>
@@ -1814,9 +1837,9 @@ function renderDashboard() {
         <div class="vc-model">${esc(v.model)}</div>
         <div class="vc-meta">${v.year ? esc(v.year) + ' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT') + ' km' : ''}${v.kmDate ? ' <span style="opacity:0.65">al ' + esc(formatDate(v.kmDate)) + '</span>' : ''}</div>
         ${addedBy}
-        <div class="vc-badges">${vehicleBadges(v)}</div>
+        <div class="vc-badges">${v.frozen ? frozenBadge : vehicleBadges(v)}</div>
         <div class="vc-actions">
-          <button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze','${v.id}')">📅 Scadenze</button>
+          ${v.frozen ? '' : `<button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze','${v.id}')">📅 Scadenze</button>`}
           <button class="btn btn-secondary btn-sm" onclick="switchTab('officina','${v.id}')">🔧 Storico</button>
         </div>
       </div>`;
@@ -1829,9 +1852,9 @@ function renderScadenze() {
   const filterV = sel.value;
   const list = document.getElementById('scadenze-list');
   sel.innerHTML = '<option value="">Tutti i veicoli</option>' +
-    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
   let items = [];
-  data.vehicles.filter(v => !filterV || v.id === filterV).forEach(v => {
+  data.vehicles.filter(v => !v.frozen && (!filterV || v.id === filterV)).forEach(v => {
     if (v.bollo) items.push({ vehicle: v, date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
     if (v.revisione) items.push({ vehicle: v, date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
     if (v.assicurazione) items.push({ vehicle: v, date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
@@ -1864,7 +1887,7 @@ function renderPneumatici() {
   const filterV = sel.value;
   const grid = document.getElementById('tire-grid');
   sel.innerHTML = '<option value="">Tutti i veicoli</option>' +
-    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
   const tires = data.tires.filter(t => !filterV || t.vehicleId === filterV).sort((a, b) => new Date(b.date) - new Date(a.date));
   if (tires.length === 0) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🛞</div><p>Nessun cambio gomme registrato.</p></div>`; return; }
   grid.innerHTML = tires.map(t => {
@@ -1929,7 +1952,7 @@ function renderMeccanica() {
   const filterV = selV.value, filterT = selT.value;
   const list = document.getElementById('mech-list');
   selV.innerHTML = '<option value="">Tutti i veicoli</option>' +
-    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+    data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
 
   let mechs = data.mechs
     .filter(m => (!filterV || m.vehicleId === filterV) && (!filterT || m.type === filterT))
@@ -2028,7 +2051,7 @@ function renderFamiglia() {
 function renderNotifications() {
   const wrap = document.getElementById('notif-wrap');
   const chips = [];
-  data.vehicles.forEach(v => {
+  data.vehicles.filter(v => !v.frozen).forEach(v => {
     const checks = [['Bollo', daysUntil(v.bollo)], ['Revisione', daysUntil(v.revisione)], ['Assic.', daysUntil(v.assicurazione)]];
     checks.forEach(([label, d]) => {
       if (d !== null && d <= 30) chips.push({
