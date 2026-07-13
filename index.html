@@ -145,7 +145,7 @@
   .notif-chip.red { background: rgba(229,72,77,0.25); border: 1px solid rgba(255,255,255,0.2); color: #ffd2d4; }
   .notif-chip.yellow { background: rgba(237,162,28,0.22); border: 1px solid rgba(255,255,255,0.2); color: #ffe4b0; }
 
-  /* ===== SHEET (contenuto bianco) ===== */
+  /* ===== SHEET (contenuto chiaro) ===== */
   .sheet {
     background: var(--page);
     border-radius: 28px 28px 0 0;
@@ -211,11 +211,11 @@
   .badge.green  { background: var(--green-soft);  color: #128a5f; }
   .badge.yellow { background: var(--yellow-soft); color: #b57608; }
   .badge.red    { background: var(--red-soft);    color: var(--red); }
+  .badge.frozen { background: var(--blue-soft);   color: var(--blue); }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
   .vc-actions { display: flex; gap: 8px; margin-top: 16px; }
   .vehicle-card.frozen { opacity: 0.75; }
   .vehicle-card.frozen .vc-model { color: var(--ink-2); }
-  .badge.frozen { background: var(--blue-soft); color: var(--blue); }
 
   .icon-btn {
     background: var(--field); border: none; color: var(--ink-2);
@@ -337,6 +337,17 @@
   .year-body .mech-item:last-child { border-bottom: none; }
   .mech-summary { margin: 2px 2px 16px; color: var(--ink-2); font-size: 13.5px; font-weight: 500; }
   .mech-summary strong { color: var(--green); font-weight: 800; }
+
+  /* GRAFICO COSTI */
+  .cost-chart {
+    display: flex; align-items: flex-end; gap: 10px;
+    background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 18px 18px 14px; margin-bottom: 16px; height: 165px;
+  }
+  .cc-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 5px; min-width: 0; }
+  .cc-bar { width: 68%; max-width: 46px; background: var(--green); border-radius: 8px 8px 3px 3px; min-height: 4px; transition: height 0.6s ease; }
+  .cc-val { font-size: 11px; font-weight: 800; color: var(--ink); white-space: nowrap; }
+  .cc-year { font-size: 11.5px; color: var(--ink-2); font-weight: 700; }
 
   /* FILTRI */
   .filter-row { display: flex; gap: 9px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
@@ -511,7 +522,7 @@
   .btn-google svg { width: 21px; height: 21px; flex-shrink: 0; background: #fff; border-radius: 50%; padding: 2px; }
   .login-note { color: var(--ink-2); font-size: 11px; margin-top: 20px; line-height: 1.6; }
 
-  /* UPDATE BANNER + TOAST */
+  /* UPDATE BANNER */
   #update-banner {
     position: fixed; bottom: calc(var(--nav-h) + 18px); left: 50%; transform: translateX(-50%);
     background: var(--green); color: #fff;
@@ -571,6 +582,7 @@
           <div class="user-menu-email" id="menu-user-email">—</div>
         </div>
         <div class="user-menu-item" onclick="switchTab('famiglia'); toggleUserMenu(false)"><span class="emoji">👨‍👩‍👧</span> Gestione Famiglia</div>
+        <div class="user-menu-item" onclick="enableNotifications(); toggleUserMenu(false)"><span class="emoji">🔔</span> Attiva notifiche</div>
         <div class="user-menu-item danger" onclick="signOut()"><span class="emoji">🚪</span> Esci</div>
       </div>
     </div>
@@ -625,6 +637,7 @@
           <select class="filter-select" id="mech-filter-type" onchange="renderMeccanica()">
             <option value="">Tutti i tipi</option>
           </select>
+          <button class="btn btn-secondary btn-sm" onclick="exportMechsCSV()">⬇️ CSV</button>
         </div>
         <div id="mech-list"></div>
       </div>
@@ -634,6 +647,7 @@
           <select class="filter-select" id="tire-filter-vehicle" onchange="renderPneumatici()">
             <option value="">Tutti i veicoli</option>
           </select>
+          <button class="btn btn-secondary btn-sm" onclick="exportTiresCSV()">⬇️ CSV</button>
         </div>
         <div class="tire-grid" id="tire-grid"></div>
       </div>
@@ -719,9 +733,15 @@
         <input type="number" class="form-input" id="v-km" placeholder="50000">
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Data rilevamento km</label>
-      <input type="date" class="form-input" id="v-km-date">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Data rilevamento km</label>
+        <input type="date" class="form-input" id="v-km-date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Intervallo tagliando (km)</label>
+        <input type="number" class="form-input" id="v-tagliando-int" placeholder="es. 15000">
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -937,7 +957,7 @@ let garageId    = null;
 let isOwner     = false;
 let currentTab  = 'garage';
 let currentSubTab = 'meccanica';
-let data = { vehicles: [], tires: [], mechs: [], members: [], garageOwner: null };
+let data = { vehicles: [], tires: [], mechs: [], members: [], garageOwner: null, garageName: '' };
 let _unsubscribers = [];
 
 // ===== SECURITY: HTML ESCAPING =====
@@ -1025,7 +1045,7 @@ async function signOutUser() {
   _unsubscribers = [];
   await fbSignOut(auth);
   currentUser = null; garageId = null;
-  data = { vehicles: [], tires: [], mechs: [], members: [], garageOwner: null };
+  data = { vehicles: [], tires: [], mechs: [], members: [], garageOwner: null, garageName: '' };
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app').classList.remove('visible');
   document.getElementById('user-avatar').style.display = 'none';
@@ -1076,7 +1096,6 @@ onAuthStateChanged(auth, async user => {
 });
 
 // ===== GARAGE RESOLUTION (sicura: nessuna scansione globale) =====
-// Il puntatore users/{uid}.garageId dice a quale garage appartiene l'utente.
 async function resolveGarage(user) {
   const uref = doc(db, 'users', user.uid);
   let pointedGarage = null;
@@ -1085,7 +1104,6 @@ async function resolveGarage(user) {
     if (usnap.exists()) pointedGarage = usnap.data().garageId || null;
   } catch(e) { console.warn('users doc read failed:', e.code); }
 
-  // Se punta a un garage altrui, verifica di essere ancora membro attivo
   if (pointedGarage && pointedGarage !== user.uid) {
     try {
       const gsnap = await getDoc(doc(db, 'garages', pointedGarage));
@@ -1098,10 +1116,8 @@ async function resolveGarage(user) {
         }
       }
     } catch(e) { console.warn('garage check failed:', e.code); }
-    // Non più membro: rimuovi il puntatore
   }
 
-  // Garage proprio
   garageId = user.uid;
   isOwner = true;
   const garageRef = doc(db, 'garages', user.uid);
@@ -1200,6 +1216,7 @@ function startListeners() {
       data.vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setStatus('online');
       renderAll();
+      saveDeadlineSnapshot().then(() => triggerDeadlineCheck());
     },
     err => { console.error(err); setStatus('error'); }
   );
@@ -1360,6 +1377,8 @@ const MECH_TYPES = [
   { id: 'dischi_ant',     icon: '⭕',  label: 'Dischi Freni Ant.',        color: '#f87171' },
   { id: 'dischi_post',    icon: '⭕',  label: 'Dischi Freni Post.',       color: '#f87171' },
   { id: 'tagliando',      icon: '📋',  label: 'Tagliando',                color: '#21b57e' },
+  { id: 'bollo',          icon: '🧾',  label: 'Bollo (pagamento)',        color: '#2f86d6' },
+  { id: 'revisione',      icon: '🔍',  label: 'Revisione',                color: '#0ea5a3' },
   { id: 'altro',          icon: '🔨',  label: 'Altro Intervento',         color: '#78909c' },
 ];
 function getMechType(id) { return MECH_TYPES.find(t => t.id === id) || { icon: '🔧', label: id, color: '#78909c' }; }
@@ -1369,11 +1388,148 @@ function formatDate(dateStr) {
 }
 function formatCurrency(n) { return n ? '€ ' + Number(n).toLocaleString('it-IT') : '—'; }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+function addYears(dateStr, n) {
+  const d = new Date(dateStr);
+  d.setFullYear(d.getFullYear() + n);
+  return d.toISOString().split('T')[0];
+}
 
 // Popola filtro tipi meccanica
 document.getElementById('mech-filter-type').innerHTML =
   '<option value="">Tutti i tipi</option>' +
   MECH_TYPES.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
+
+// ===== EXPORT CSV =====
+function downloadCSV(filename, rows) {
+  const csv = '﻿' + rows.map(r =>
+    r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')
+  ).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function vehicleLabel(id) {
+  const v = data.vehicles.find(v => v.id === id);
+  return v ? `${v.plate} ${v.model}` : 'Veicolo rimosso';
+}
+function exportMechsCSV() {
+  const filterV = document.getElementById('mech-filter-vehicle').value;
+  const filterT = document.getElementById('mech-filter-type').value;
+  const mechs = data.mechs
+    .filter(m => (!filterV || m.vehicleId === filterV) && (!filterT || m.type === filterT))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (mechs.length === 0) { _showToast('Nessun intervento da esportare', 'yellow'); return; }
+  const rows = [['Data', 'Veicolo', 'Intervento', 'Km', 'Costo (€)', 'Officina', 'Note', 'Inserito da']];
+  mechs.forEach(m => rows.push([
+    m.date || '', vehicleLabel(m.vehicleId), getMechType(m.type).label,
+    m.km || '', m.cost || '', m.garage || '', m.note || '', m.addedBy || ''
+  ]));
+  const tot = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  rows.push([]);
+  rows.push(['', '', 'TOTALE', '', tot, '', '', '']);
+  downloadCSV(`garageos-interventi-${new Date().toISOString().split('T')[0]}.csv`, rows);
+  _showToast('⬇️ CSV interventi scaricato');
+}
+window.exportMechsCSV = exportMechsCSV;
+function exportTiresCSV() {
+  const filterV = document.getElementById('tire-filter-vehicle').value;
+  const tires = data.tires
+    .filter(t => !filterV || t.vehicleId === filterV)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (tires.length === 0) { _showToast('Nessun cambio gomme da esportare', 'yellow'); return; }
+  const seasons = { invernale: 'Invernale', estivo: 'Estivo', allseason: '4 Stagioni' };
+  const rows = [['Data', 'Veicolo', 'Stagione', 'Km', 'Prossimo cambio (km)', 'Marca', 'Misura', 'Note']];
+  tires.forEach(t => rows.push([
+    t.date || '', vehicleLabel(t.vehicleId), seasons[t.season] || t.season,
+    t.km || '', t.kmNext || '', t.brand || '', t.size || '', t.note || ''
+  ]));
+  downloadCSV(`garageos-gomme-${new Date().toISOString().split('T')[0]}.csv`, rows);
+  _showToast('⬇️ CSV gomme scaricato');
+}
+window.exportTiresCSV = exportTiresCSV;
+
+// ===== NOTIFICHE =====
+async function saveDeadlineSnapshot() {
+  try {
+    const deadlines = [];
+    data.vehicles.filter(v => !v.frozen).forEach(v => {
+      if (v.bollo) deadlines.push({ plate: v.plate, label: 'Bollo', date: v.bollo });
+      if (v.revisione) deadlines.push({ plate: v.plate, label: 'Revisione', date: v.revisione });
+      if (v.assicurazione) deadlines.push({ plate: v.plate, label: 'Assicurazione', date: v.assicurazione });
+    });
+    const cache = await caches.open('garageos-notif');
+    const prev = await cache.match('notif-data');
+    const lastNotified = prev ? ((await prev.json()).lastNotified || 0) : 0;
+    await cache.put('notif-data', new Response(
+      JSON.stringify({ deadlines, lastNotified }),
+      { headers: { 'Content-Type': 'application/json' } }
+    ));
+  } catch(e) { console.warn('snapshot notifiche fallito:', e); }
+}
+
+async function enableNotifications() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    _showToast('Notifiche non supportate su questo browser', 'red'); return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { _showToast('Permesso notifiche negato', 'yellow'); return; }
+  await saveDeadlineSnapshot();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ('periodicSync' in reg) {
+      try {
+        await reg.periodicSync.register('garageos-check', { minInterval: 12 * 3600 * 1000 });
+        _showToast('🔔 Notifiche attive: controllo scadenze in background');
+      } catch(e) {
+        _showToast('🔔 Notifiche attive (controllo all’apertura dell’app)');
+      }
+    } else {
+      _showToast('🔔 Notifiche attive (controllo all’apertura dell’app)');
+    }
+    reg.showNotification('GarageOS', {
+      body: 'Notifiche attivate: ti avviserò quando una scadenza è a meno di 10 giorni.',
+      icon: 'icon-192.png', badge: 'icon-192.png',
+    });
+  } catch(e) { _showToast('Errore attivazione notifiche: ' + e.message, 'red'); }
+}
+window.enableNotifications = enableNotifications;
+
+function triggerDeadlineCheck() {
+  if (('Notification' in window) && Notification.permission === 'granted' && navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CHECK_DEADLINES' });
+  }
+}
+
+// ===== RINNOVO SCADENZE (bollo +1 anno, revisione +2) =====
+async function renewDeadline(vid, kind) {
+  const v = data.vehicles.find(x => x.id === vid);
+  if (!v) return;
+  const conf = {
+    bollo:     { field: 'bollo',     costField: 'bolloCost',     label: 'Bollo',     years: 1 },
+    revisione: { field: 'revisione', costField: 'revisioneCost', label: 'Revisione', years: 2 },
+  }[kind];
+  if (!conf || !v[conf.field]) return;
+  const newDate = addYears(v[conf.field], conf.years);
+  const costMsg = v[conf.costField] ? ` Registro €${Number(v[conf.costField]).toLocaleString('it-IT')} nello storico.` : '';
+  if (!await showConfirm(`Segnare ${conf.label} di ${v.plate} come rinnovato? Nuova scadenza: ${formatDate(newDate)}.${costMsg}`)) return;
+  try {
+    const now = new Date().toISOString();
+    await addVehicle({ ...v, [conf.field]: newDate, updatedAt: now });
+    await addMech({
+      id: uid(), vehicleId: vid, type: kind,
+      date: now.split('T')[0], km: v.km || '',
+      cost: v[conf.costField] || '', garage: '',
+      note: `Rinnovo ${conf.label} — nuova scadenza ${formatDate(newDate)}`,
+      createdAt: now, updatedAt: now,
+      addedBy: currentUser?.email || '?',
+    });
+    _showToast(`✅ ${conf.label} rinnovato · prossima scadenza ${formatDate(newDate)}`);
+  } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+}
+window.renewDeadline = renewDeadline;
 
 // ===== MECH TYPE MULTI-SELECT =====
 let _selectedMechTypes = [];
@@ -1418,6 +1574,8 @@ function openModal(id) {
     m.querySelectorAll('input:not(#v-edit-id), textarea').forEach(el => { el.value = ''; });
     const typeEl = document.getElementById('v-type');
     if (typeEl) typeEl.selectedIndex = 0;
+    const frozenEl = document.getElementById('v-frozen');
+    if (frozenEl) frozenEl.selectedIndex = 0;
   }
   m.classList.add('open');
   if (id === 'tire-modal') populateVehicleSelect('t-vehicle');
@@ -1462,6 +1620,27 @@ function populateVehicleSelect(selectId) {
     : data.vehicles.map(v => `<option value="${v.id}">${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
 }
 
+// ===== NOME GARAGE =====
+function openGarageName() {
+  if (!isOwner) return;
+  document.getElementById('g-name').value = data.garageName || '';
+  openModal('garage-name-modal');
+}
+window.openGarageName = openGarageName;
+
+async function saveGarageName() {
+  const name = document.getElementById('g-name').value.trim();
+  setButtonLoading('btn-save-gname', true);
+  try {
+    await setDoc(doc(db, 'garages', garageId), { garageName: name }, { merge: true });
+    closeModal('garage-name-modal');
+    data.garageName = name;
+    renderHeader();
+  } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  setButtonLoading('btn-save-gname', false);
+}
+window.saveGarageName = saveGarageName;
+
 // ===== TABS =====
 const TAB_META = {
   garage:   { title: '',                 sub: '' },
@@ -1476,7 +1655,6 @@ function switchTab(name, vehicleId) {
   document.getElementById('section-' + name).classList.add('active');
   document.getElementById('nav-' + name).classList.add('active');
 
-  // Hero solo su garage
   document.getElementById('hero').style.display = name === 'garage' ? '' : 'none';
   const head = document.getElementById('page-head');
   if (name === 'garage') { head.style.display = 'none'; }
@@ -1486,7 +1664,6 @@ function switchTab(name, vehicleId) {
     document.getElementById('page-sub').textContent = TAB_META[name].sub;
   }
 
-  // FAB contestuale
   updateFab();
 
   if (vehicleId) {
@@ -1542,6 +1719,7 @@ function openEditVehicle(id) {
   document.getElementById('v-year').value = v.year || '';
   document.getElementById('v-km').value = v.km || '';
   document.getElementById('v-km-date').value = v.kmDate || '';
+  document.getElementById('v-tagliando-int').value = v.tagliandoInt || '';
   document.getElementById('v-bollo').value = v.bollo || '';
   document.getElementById('v-bollo-cost').value = v.bolloCost || '';
   document.getElementById('v-revisione').value = v.revisione || '';
@@ -1572,6 +1750,7 @@ async function saveVehicle() {
     year: document.getElementById('v-year').value,
     km: document.getElementById('v-km').value,
     kmDate: document.getElementById('v-km-date').value,
+    tagliandoInt: document.getElementById('v-tagliando-int').value,
     bollo: document.getElementById('v-bollo').value,
     bolloCost: document.getElementById('v-bollo-cost').value,
     revisione: document.getElementById('v-revisione').value,
@@ -1723,27 +1902,6 @@ function renderHeader() {
   document.getElementById('garage-role').textContent = isOwner ? 'Proprietario' : 'Membro';
 }
 
-// ===== NOME GARAGE =====
-function openGarageName() {
-  if (!isOwner) return;
-  document.getElementById('g-name').value = data.garageName || '';
-  openModal('garage-name-modal');
-}
-window.openGarageName = openGarageName;
-
-async function saveGarageName() {
-  const name = document.getElementById('g-name').value.trim();
-  setButtonLoading('btn-save-gname', true);
-  try {
-    await setDoc(doc(db, 'garages', garageId), { garageName: name }, { merge: true });
-    closeModal('garage-name-modal');
-    data.garageName = name;
-    renderHeader();
-  } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
-  setButtonLoading('btn-save-gname', false);
-}
-window.saveGarageName = saveGarageName;
-
 function nextDeadline() {
   let best = null;
   data.vehicles.filter(v => !v.frozen).forEach(v => {
@@ -1792,14 +1950,14 @@ function renderStats() {
     <div class="stat-card"><div class="stat-value">${membersN}</div><div class="stat-label">Membri</div></div>`;
 }
 
-function vehicleBadges(v, compact = false) {
+function vehicleBadges(v) {
   const parts = [];
   const mk = (label, date, cost, company) => {
     const d = daysUntil(date);
     if (d === null) return;
     const cls = badgeClass(d);
-    const costStr = !compact && cost ? ' · €' + Number(cost).toLocaleString('it-IT') : '';
-    const compStr = !compact && company ? ' ' + esc(company) : '';
+    const costStr = cost ? ' · €' + Number(cost).toLocaleString('it-IT') : '';
+    const compStr = company ? ' ' + esc(company) : '';
     parts.push(`<span class="badge ${cls}"><span class="status-dot"></span>${esc(label)}${compStr}: ${d >= 0 ? d + 'gg' : 'SCADUTO'}${costStr}</span>`);
   };
   mk('Bollo', v.bollo, v.bolloCost);
@@ -1818,6 +1976,11 @@ function renderDashboard() {
   }
   const sorted = [...data.vehicles].sort((a, b) => (a.frozen ? 1 : 0) - (b.frozen ? 1 : 0));
   grid.innerHTML = sorted.map(v => {
+    const vMechs = data.mechs.filter(m => m.vehicleId === v.id);
+    const vCost = vMechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    const costLine = vMechs.length
+      ? `<div class="vc-meta" style="margin-top:4px">🔧 ${vMechs.length} interventi · <b style="color:var(--ink)">€${Math.round(vCost).toLocaleString('it-IT')}</b></div>`
+      : '';
     const addedBy = v.addedBy ? `<div style="font-size:11.5px;color:var(--ink-2);margin-top:5px">Aggiunto da ${esc(v.addedBy)}</div>` : '';
     const frozenBadge = v.frozen
       ? `<span class="badge frozen">🧊 Congelato${v.frozenAt ? ' dal ' + esc(formatDate(v.frozenAt)) : ''}</span>`
@@ -1836,6 +1999,7 @@ function renderDashboard() {
         </div>
         <div class="vc-model">${esc(v.model)}</div>
         <div class="vc-meta">${v.year ? esc(v.year) + ' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT') + ' km' : ''}${v.kmDate ? ' <span style="opacity:0.65">al ' + esc(formatDate(v.kmDate)) + '</span>' : ''}</div>
+        ${costLine}
         ${addedBy}
         <div class="vc-badges">${v.frozen ? frozenBadge : vehicleBadges(v)}</div>
         <div class="vc-actions">
@@ -1855,9 +2019,9 @@ function renderScadenze() {
     data.vehicles.map(v => `<option value="${v.id}" ${filterV === v.id ? 'selected' : ''}>${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
   let items = [];
   data.vehicles.filter(v => !v.frozen && (!filterV || v.id === filterV)).forEach(v => {
-    if (v.bollo) items.push({ vehicle: v, date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
-    if (v.revisione) items.push({ vehicle: v, date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
-    if (v.assicurazione) items.push({ vehicle: v, date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
+    if (v.bollo) items.push({ vehicle: v, kind: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
+    if (v.revisione) items.push({ vehicle: v, kind: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
+    if (v.assicurazione) items.push({ vehicle: v, kind: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
   });
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
   items.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1875,7 +2039,10 @@ function renderScadenze() {
         <div class="sc-sub">${esc(item.vehicle.model)} · Scade: ${esc(formatDate(item.date))}</div>
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
       </div>
-      <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+        ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" onclick="renewDeadline('${item.vehicle.id}','${item.kind}')">✅ Rinnovata</button>` : ''}
+      </div>
     </div>`;
   }).join('');
 }
@@ -1972,6 +2139,22 @@ function renderMeccanica() {
   const totalCost = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
 
   let html = `<div class="mech-summary">${mechs.length} interventi · ${years.length} ${years.length === 1 ? 'anno' : 'anni'} · Totale: <strong>€${totalCost.toLocaleString('it-IT')}</strong></div>`;
+
+  // Grafico costi per anno (se almeno 2 anni)
+  const chronoYears = [...years].reverse().slice(-8).filter(y => y !== 'N/D');
+  const yearCosts = chronoYears.map(y => byYear[y].reduce((s, m) => s + (parseFloat(m.cost) || 0), 0));
+  const maxCost = Math.max(...yearCosts, 1);
+  if (chronoYears.length >= 2 && maxCost > 0) {
+    html += `<div class="cost-chart">` + chronoYears.map((y, i) => {
+      const h = Math.max(4, Math.round((yearCosts[i] / maxCost) * 92));
+      return `<div class="cc-col">
+        <div class="cc-val">${yearCosts[i] > 0 ? '€' + Math.round(yearCosts[i]).toLocaleString('it-IT') : ''}</div>
+        <div class="cc-bar" style="height:${h}px"></div>
+        <div class="cc-year">${y}</div>
+      </div>`;
+    }).join('') + `</div>`;
+  }
+
   years.forEach((yr, idx) => {
     const items = byYear[yr];
     const yrCost = items.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
@@ -2047,6 +2230,34 @@ function renderFamiglia() {
   document.getElementById('invite-box').style.display = isOwner ? '' : 'none';
 }
 
+// ===== PROMEMORIA KM (gomme + tagliando) =====
+function kmAlerts() {
+  const chips = [];
+  const SOGLIA = 2000; // avvisa quando mancano meno di 2000 km
+  data.vehicles.filter(v => !v.frozen && v.km).forEach(v => {
+    const km = Number(v.km);
+    const lastTire = data.tires
+      .filter(t => t.vehicleId === v.id && t.kmNext)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    if (lastTire) {
+      const delta = Number(lastTire.kmNext) - km;
+      if (delta <= 0) chips.push({ cls: 'red', tab: 'officina', text: `${esc(v.plate)} · Gomme: cambio da fare` });
+      else if (delta <= SOGLIA) chips.push({ cls: 'yellow', tab: 'officina', text: `${esc(v.plate)} · Gomme tra ~${delta.toLocaleString('it-IT')} km` });
+    }
+    if (v.tagliandoInt) {
+      const lastTag = data.mechs
+        .filter(m => m.vehicleId === v.id && m.type === 'tagliando' && m.km)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      if (lastTag) {
+        const delta = Number(lastTag.km) + Number(v.tagliandoInt) - km;
+        if (delta <= 0) chips.push({ cls: 'red', tab: 'officina', text: `${esc(v.plate)} · Tagliando da fare` });
+        else if (delta <= SOGLIA) chips.push({ cls: 'yellow', tab: 'officina', text: `${esc(v.plate)} · Tagliando tra ~${delta.toLocaleString('it-IT')} km` });
+      }
+    }
+  });
+  return chips;
+}
+
 // ===== RENDER: AVVISI =====
 function renderNotifications() {
   const wrap = document.getElementById('notif-wrap');
@@ -2056,6 +2267,7 @@ function renderNotifications() {
     checks.forEach(([label, d]) => {
       if (d !== null && d <= 30) chips.push({
         cls: d <= 10 ? 'red' : 'yellow',
+        tab: 'scadenze',
         text: `${esc(v.plate)} · ${label}: ${d <= 0 ? 'SCADUTO' : d + 'gg'}`
       });
     });
@@ -2064,9 +2276,10 @@ function renderNotifications() {
   if (chips.length > 0) { badge.textContent = chips.length; badge.classList.add('show'); }
   else badge.classList.remove('show');
 
-  if (chips.length === 0 || currentTab !== 'garage') { wrap.classList.remove('has'); wrap.innerHTML = ''; return; }
+  const all = chips.concat(kmAlerts());
+  if (all.length === 0 || currentTab !== 'garage') { wrap.classList.remove('has'); wrap.innerHTML = ''; return; }
   wrap.classList.add('has');
-  wrap.innerHTML = chips.map(c => `<span class="notif-chip ${c.cls}" onclick="switchTab('scadenze')">${c.text}</span>`).join('');
+  wrap.innerHTML = all.map(c => `<span class="notif-chip ${c.cls}" onclick="switchTab('${c.tab}')">${c.text}</span>`).join('');
 }
 
 // ===== RENDER ALL =====
