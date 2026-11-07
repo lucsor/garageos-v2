@@ -55,7 +55,7 @@
 | F2 | Scadenze personalizzate (`deadlines`) + regole + test | 1,5 giorni | v2.4 |
 | F3 | Rifornimenti e consumi (`fuel`) + regole + test | 2 giorni | v2.4 |
 | F4 | Spese annue, costo di possesso, grafici | 1,5 giorni | v2.4 |
-| F5 | Più garage per utente (`garageIds`, selettore) | 2 giorni | v2.5 |
+| F5 | Più garage per utente (`garageIds`, selettore) — **ultimo**: oggi non serve a nessuno | 2 giorni | v2.5 |
 | F6 | Ruoli editor/lettore (regole + inviti con ruolo) | 2 giorni | v2.5 |
 | F7 | Log attività (batch + regole append-only + TTL) | 1,5 giorni | v2.5 |
 | F8 | Promemoria email e push via GitHub Actions | 3 giorni | v3 |
@@ -70,6 +70,12 @@
 | U4 | Divisione in moduli ES senza build (prototipo in `refactor/modules`) | 1 giorno | vedi `STATO.md` |
 
 ---
+
+## Decisioni del 2026-11-07
+- **v2.3.0:** pubblicata dopo la review indipendente (vedi `STATO.md` §3.1).
+- **v2.3.1:** App Check **solo monitoraggio** (S2); pulizia `members[]` (S4) solo quando `tools/admin/check-v2-logins.mjs` dà ✔ per i 3 amici.
+- **Ordine della v2.4:** 1) U4 moduli ES (`refactor/modules` ribasato su `main`) → 2) F1 calendario/.ics + F2 scadenze → 3) F3 rifornimenti + F4 spese annue. F5 (più garage) resta per ultimo, in v2.5.
+- **Costi multi-tipo:** "costo sul primo tipo + incluso" fino alla v3, poi un documento con `types[]`.
 
 ## Sequenza consigliata per la v2.3
 1. Revisione di `fix/v2.3`: B1, B2, B3, D1, D2 (dry-run), S3.
