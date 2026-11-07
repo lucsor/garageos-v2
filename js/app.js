@@ -1637,20 +1637,23 @@ function applyUpdate() {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    reg.update().catch(() => {});   // offline: nessun controllo aggiornamenti, non è un errore
-    reg.addEventListener('updatefound', () => {
-      const newWorker = reg.installing;
-      newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          _swWaiting = newWorker;
-          document.getElementById('update-banner').classList.add('show');
-        }
-      });
-    });
-    if (reg.waiting && navigator.serviceWorker.controller) {
-      _swWaiting = reg.waiting;
+    const showBanner = w => {
+      if (!navigator.serviceWorker.controller) return;   // prima installazione: niente banner
+      _swWaiting = w;
       document.getElementById('update-banner').classList.add('show');
-    }
+    };
+    const track = w => {
+      if (!w) return;
+      if (w.state === 'installed') { showBanner(w); return; }
+      w.addEventListener('statechange', () => { if (w.state === 'installed') showBanner(w); });
+    };
+    // L'aggiornamento può essere già in corso quando questo codice gira: il browser controlla sw.js
+    // alla navigazione, PRIMA che il modulo dell'app sia caricato. Senza guardare reg.installing,
+    // l'evento updatefound è già passato e il banner compariva solo all'apertura successiva.
+    if (reg.waiting) showBanner(reg.waiting);
+    else track(reg.installing);
+    reg.addEventListener('updatefound', () => track(reg.installing));
+    reg.update().catch(() => {});   // offline: nessun controllo aggiornamenti, non è un errore
   }).catch(err => console.log('SW registration failed:', err));
   // Ricarica SOLO se un SW controllava già la pagina (= aggiornamento richiesto dall'utente) e una volta sola.
   // Alla prima installazione clients.claim() fa scattare controllerchange: prima ricaricava la pagina,
