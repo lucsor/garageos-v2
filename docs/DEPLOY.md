@@ -1,60 +1,77 @@
-# Deploy e rollback — hotfix v2.2.0
+# Deploy e rollback — hotfix v2.2.0 + migrazione membri + dismissione v1
 
-Progetto Firebase: `garageos-879bc` · App: GitHub Pages da `main` / root · Branch: `hotfix/security`
+- **Progetto Firebase:** `garageos-879bc` (piano Spark: niente export gestito su bucket, il backup è il JSON)
+- **App v2:** GitHub Pages da `lucsor/garageos-v2` `main` / root · branch `hotfix/security`
+- **App v1:** `lucsor/garageOS` `main` · branch `redirect-to-v2`
+- **Backup:** fuori dal progetto, in `%USERPROFILE%\Documents\garageos-backup\` (variabile `GARAGEOS_BACKUP_DIR`). Contiene dati personali: non copiarlo nel repo.
+- **Script admin:** `tools/admin` (`npm install` la prima volta). Usano le credenziali di `firebase login` e girano **fuori dalle regole**.
 
-> **Regola d'oro:** prima le regole, poi l'app, a pochi minuti di distanza.
-> - L'app v2.2 con le regole vecchie **non può creare né accettare inviti**: la collezione `invites` non è prevista.
-> - L'app v2.1, ancora in cache sui telefoni, con le regole nuove **continua a funzionare**: garage, veicoli, gomme, interventi, rinomina e rimozione membri.
->   Si rompe solo il vecchio link `?join=`, che è proprio la falla da chiudere.
+> **Ordine:** backup → migrazione → regole → app v2 → redirect v1.
+> - La migrazione funziona sia con le regole vecchie sia con le nuove: aggiunge solo `memberUids` e `users/{uid}`.
+> - Le regole vanno prima dell'app. L'app v2.1, ancora in cache sui telefoni, funziona anche con le regole nuove; l'app v2.2 con le regole vecchie non gestisce gli inviti.
+> - Il redirect della v1 va per ultimo, così porta su una v2.2 già funzionante.
+>
+> Ci si ferma a ogni passo per l'ok.
 
-Le regole pubblicate fino a oggi sono salvate in `docs/rules-backup/pre-v2.2.rules` (ruleset `d071b7de-15f7-4e1e-9055-781c28720c67`, scaricato il 2026-11-07).
+Regole pubblicate fino a oggi: `docs/rules-backup/pre-v2.2.rules` (ruleset `d071b7de-15f7-4e1e-9055-781c28720c67`).
 
 ---
 
 ## Sequenza
 
-| # | Chi | Comando / azione | Verifica |
+| # | Azione | Comando | Verifica |
 |---|---|---|---|
-| 0 | Claude/tu | Ultimi controlli in locale:<br>`cd tests/rules && npm test`<br>`node tools/csp-hash.mjs --check`<br>`cd tests/e2e && npm run test:csp` (con emulatori e server attivi, vedi README) | 92/92 · `CSP OK` · `✔ Nessuna violazione CSP` |
-| 1 | tu | **OK al push** di `hotfix/security` e apertura della PR verso `main` | La PR mostra il diff |
-| 2 | Claude/tu | Backup delle regole attuali, appena prima del deploy, nel caso siano cambiate da oggi:<br>`node tools/backup-rules.mjs` | Nuovo file in `docs/rules-backup/`. Se è diverso da `pre-v2.2.rules`, **fermarsi e confrontare** |
-| 3 | tu (o Claude con il tuo ok) | **Regole e indici:**<br>`npx firebase-tools deploy --only firestore:rules,firestore:indexes --project garageos-879bc`<br>(dalla root del repo; in alternativa Console → Firestore → Regole → incolla `firestore.rules` → Pubblica) | Output `✔ Deploy complete!`; in Console → Regole compare la nuova versione con data e ora |
-| 4 | tu | **Merge della PR su `main`**, entro pochi minuti dal punto 3 | GitHub → Actions/Pages: build "pages build and deployment" verde (1-2 min) |
-| 5 | Claude/tu | `curl -s https://lucsor.github.io/garageos-v2/sw.js \| grep VERSION` | `const VERSION = '2.2.0';` |
-| 6 | tu | Apri l'app → banner "Nuova versione" → tocca. Login, controlla la console (nessun `Refused to…`), vai su Famiglia → crea un invito di prova verso un tuo secondo account → accettalo da quel dispositivo o account → rimuovilo | Ingresso e rimozione funzionano; il link riusato dà "già stato usato" |
-| 7 | tu | Avvisa la famiglia: aprire l'app e toccare "Nuova versione". Chi era stato invitato con un vecchio link `?join=` va **reinvitato** (in Famiglia compare come "Vecchio formato") | — |
-
-**Finestra di rischio tra 3 e 4:** chi usa la v2.1 durante quei minuti non può più usare i link `?join=`. È voluto.
+| 0 | Test in locale | `cd tests/rules && npm test` (92)<br>`npm run test:prod-data` (17, dati reali)<br>`node tools/csp-hash.mjs --check`<br>con emulatori e server attivi: `cd tests/e2e && npm run test:csp && node first-open.e2e.mjs` | tutto verde |
+| 1 | OK al **push** di `hotfix/security` (v2) e di `redirect-to-v2` (v1), poi apertura delle PR | — | PR con il diff |
+| 2 | **Backup fresco** dei dati e delle regole, appena prima di scrivere | `cd tools/admin`<br>`node export-firestore.mjs`<br>`node export-auth-users.mjs`<br>`cd ../.. && node tools/backup-rules.mjs` | nuovi file datati; regole uguali a `pre-v2.2.rules`, altrimenti **fermarsi** |
+| 3 | **Migrazione, dry run** | `cd tools/admin`<br>`node migrate-members.mjs --garage <gid> --uid <alessandro> --uid <tiziana>`<br>(uid in `migration-plan.json`) | il diff è identico a quello approvato: solo `memberUids` più 2 `users/{uid}` CREATE |
+| 4 | **Migrazione, apply** | stesso comando + `--apply` | `✔ Applicato` e `✔ Verifica post-scrittura`; rilanciandolo dice "Già migrato" |
+| 5 | **Regole e indici** | `npx firebase-tools deploy --only firestore:rules,firestore:indexes --project garageos-879bc` | `✔ Deploy complete!`; in Console → Regole c'è la nuova versione |
+| 6 | **Merge** della PR v2 su `main`, entro pochi minuti dal passo 5 | — | build Pages verde; `curl -s https://lucsor.github.io/garageos-v2/sw.js \| grep VERSION` → `2.2.0` |
+| 7 | **Prova in produzione** | tu: login, nessun `Refused to…` in console, Famiglia mostra alessandro e tiziana; un invito di prova verso un secondo account va accettato e poi rimosso | tutto ok |
+| 8 | **Merge** della PR v1 (`redirect-to-v2`) su `main` di `lucsor/garageOS` | — | `https://lucsor.github.io/garageOS/` porta alla v2 |
+| 9 | Comunicazione | ad amici e famiglia: nuovo link `https://lucsor.github.io/garageos-v2/`, stesso account Google, reinstallare l'icona; a francesco: invito v2.2 dalla scheda Famiglia | — |
 
 ---
 
-## Rollback
+## Rollback (in ordine inverso, fermandosi a ogni passo)
 
-Va fatto **in ordine inverso**: prima l'app, poi le regole. Con l'app v2.2 online e le regole vecchie, gli inviti smetterebbero di funzionare.
+### A. v1: annullare il redirect
+`git revert <sha-merge-redirect>` su `lucsor/garageOS` `main` e push.
+La v1 resta comunque inutilizzabile con qualsiasi regola che vieti di elencare tutti i garage, perché la usa all'avvio. Il revert serve solo a ripristinare la pagina.
 
-### A. Rollback dell'app (Pages)
+### B. App v2
 ```sh
 git checkout main && git pull
-git revert -m 1 <sha-del-merge-v2.2>     # crea un commit che annulla il merge
-git push origin main                      # Pages ripubblica la v2.1 in 1-2 minuti
+git revert -m 1 <sha-merge-v2.2> && git push origin main      # Pages ripubblica la v2.1
 ```
-Il byte di `sw.js` cambia, quindi i client vedranno il banner di aggiornamento verso la v2.1.
 
-### B. Rollback delle regole
-Opzione 1, CLI (un solo comando, usa `firebase.rollback.json` che punta al backup):
+### C. Regole
 ```sh
 npx firebase-tools deploy --only firestore:rules --config firebase.rollback.json --project garageos-879bc
 ```
-Opzione 2, Console: Firestore → Regole → icona cronologia → seleziona la versione precedente al deploy → **Pubblica**.
+In alternativa: Console → Firestore → Regole → cronologia → versione precedente → Pubblica.
 
-### Dati creati dalla v2.2 dopo un rollback
-- I documenti `invites/*` e i campi `memberInfo` restano. La v2.1 li ignora, quindi sono innocui.
-  Non vanno cancellati: servono se si ripubblica la v2.2.
-- I membri entrati con un invito v2.2 sono in `memberUids`, quindi mantengono l'accesso anche con la v2.1.
+### D. Dati: ripristino dal backup JSON
+`tools/admin/restore-firestore.mjs` riscrive i documenti **esattamente com'erano nel backup**.
+- Fa sempre prima un dry run, che mostra i documenti identici, diversi e mancanti.
+- Riscrive solo quelli diversi o mancanti.
+- **Non cancella** i documenti creati dopo il backup (`invites/*`, nuovi `users/*`): li elenca soltanto.
+- Rifiuta `--target production` se è impostato `FIRESTORE_EMULATOR_HOST`, e viceversa.
 
----
+```sh
+cd tools/admin
+# 1) cosa cambierebbe (dry run). --file per scegliere un backup preciso, --only per limitarlo
+node restore-firestore.mjs --target production --file "%USERPROFILE%\Documents\garageos-backup\firestore-YYYYMMDD.json"
+# 2a) annullare SOLO la migrazione: riporta il garage com'era (memberUids compreso)
+node restore-firestore.mjs --target production --only garages/<gid> --apply
+# 2b) ripristino completo di tutti i documenti del backup
+node restore-firestore.mjs --target production --apply
+```
 
-## Cosa NON fa questo deploy
-- Non migra né modifica dati esistenti: nessuna scrittura batch su produzione.
-- Non tocca la v1 (`lucsor/garageOS`): è già inutilizzabile con le regole attuali (vedi la risposta sul punto 3).
-- Niente App Check né restrizione della API key: sono nel piano.
+Note:
+- **2a** riporta l'intero documento garage allo stato del backup: si perdono anche le modifiche successive, come la rinomina o i membri entrati dopo con un invito v2.2.
+  I `users/{uid}` creati dalla migrazione restano. Sono innocui: senza `memberUids` l'app riceve `permission-denied` e riporta il puntatore al garage personale.
+  Se vuoi eliminarli: Console → Firestore → `users/<uid>` → Elimina documento.
+- Per i veicoli o gli interventi di un garage: `--only garages/<gid>/vehicles/<id>` (o `.../mechs/<id>`).
+- Collaudato sull'emulatore: dry run, poi apply, poi di nuovo dry run con 73 su 73 documenti identici.
