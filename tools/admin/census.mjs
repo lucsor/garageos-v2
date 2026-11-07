@@ -4,11 +4,11 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BACKUP_DIR } from './creds.mjs';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const latest = (prefix) => {
-  const f = readdirSync(`${repoRoot}/backup`).filter((x) => x.startsWith(prefix)).sort().pop();
-  return f && `${repoRoot}/backup/${f}`;
+  const f = readdirSync(BACKUP_DIR).filter((x) => x.startsWith(prefix)).sort().pop();
+  return f && `${BACKUP_DIR}/${f}`;
 };
 const fsFile = process.argv[2] || latest('firestore-');
 const authFile = process.argv[3] || latest('auth-users-');

@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 // Elenco account Firebase Auth (SOLA LETTURA): uid, email, provider, creazione, ultimo accesso.
-//   node export-auth-users.mjs [--out <file>]     (default: backup/auth-users-YYYYMMDD.json, fuori da git)
+//   node export-auth-users.mjs [--out <file>]     (default: <BACKUP_DIR>/auth-users-YYYYMMDD.json)
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { initializeApp, refreshToken, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { PROJECT_ID, whoami } from './creds.mjs';
+import { PROJECT_ID, whoami, BACKUP_DIR } from './creds.mjs';
 
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
 const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const out = resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : `${repoRoot}/backup/auth-users-${ymd}.json`);
+const out = resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : `${BACKUP_DIR}/auth-users-${ymd}.json`);
 
 let credential;
 if (process.env.GOOGLE_APPLICATION_CREDENTIALS) credential = applicationDefault();

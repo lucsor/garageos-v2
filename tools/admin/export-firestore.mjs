@@ -6,23 +6,14 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Timestamp, GeoPoint, DocumentReference } from './creds.mjs';
+import { BACKUP_DIR } from './creds.mjs';
+import { encode } from './restore-lib.mjs';
 import { adminDb, PROJECT_ID, whoami } from './creds.mjs';
 
 const args = process.argv.slice(2);
 const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const out = resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : `${repoRoot}/backup/firestore-${ymd}.json`);
+const out = resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : `${BACKUP_DIR}/firestore-${ymd}.json`);
 
-export function encode(v) {
-  if (v === null || typeof v !== 'object') return v;
-  if (v instanceof Timestamp) return { __t: 'ts', s: v.seconds, n: v.nanoseconds };
-  if (v instanceof GeoPoint) return { __t: 'geo', lat: v.latitude, lng: v.longitude };
-  if (v instanceof DocumentReference) return { __t: 'ref', path: v.path };
-  if (Buffer.isBuffer(v) || v instanceof Uint8Array) return { __t: 'bytes', b64: Buffer.from(v).toString('base64') };
-  if (Array.isArray(v)) return v.map(encode);
-  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, encode(x)]));
-}
 
 const db = adminDb();
 const documents = {};

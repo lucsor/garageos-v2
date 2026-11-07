@@ -3,11 +3,15 @@
 // Si usa @google-cloud/firestore (lo stesso client di firebase-admin), che accetta credenziali
 // 'authorized_user' in memoria; firebase-admin/firestore accetterebbe solo ADC o service account.
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Firestore } from '@google-cloud/firestore';
 import { GoogleAuth } from 'google-auth-library';
 
 const require = createRequire(import.meta.url);
 export const PROJECT_ID = process.env.GCLOUD_PROJECT || 'garageos-879bc';
+// I backup contengono dati personali: stanno FUORI dal progetto (override con GARAGEOS_BACKUP_DIR)
+export const BACKUP_DIR = process.env.GARAGEOS_BACKUP_DIR || join(homedir(), 'Documents', 'garageos-backup');
 export { Timestamp, GeoPoint, DocumentReference, FieldValue, FieldPath } from '@google-cloud/firestore';
 
 function cliCredentials() {
