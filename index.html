@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-usMMOPY1doERxvIKcE87Uqcp7WHcuc2EoViNqXH0jLE=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-c2P3jbK5ObUZ7VZJg8MgLXhZ8Om7m5L53L8ToYhgidE=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -216,6 +216,8 @@
   .badge.yellow { background: var(--yellow-soft); color: #b57608; }
   .badge.red    { background: var(--red-soft);    color: var(--red); }
   .badge.frozen { background: var(--blue-soft);   color: var(--blue); }
+  .badge.incl   { background: var(--blue-soft);   color: var(--blue); font-size: 12.5px; letter-spacing: 0; }
+  .mech-incl { font-size: 12px; color: var(--blue); font-weight: 600; margin-top: 4px; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
   .vc-actions { display: flex; gap: 8px; margin-top: 16px; }
   .vehicle-card.frozen { opacity: 0.75; }
@@ -1632,7 +1634,7 @@ function mechCostInfo(mechs) {
     const k = `${m.vehicleId}|${m.date}|${m.createdAt}`;
     (groups.get(k) || groups.set(k, []).get(k)).push(m);
   }
-  const info = new Map();   // id → { counted: number, included: bool }
+  const info = new Map();   // id → { counted: number, included: bool, payer?: id del documento che porta il costo }
   for (const m of mechs) info.set(m.id, { counted: parseFloat(m.cost) || 0, included: false });
   for (const g of groups.values()) {
     if (g.length < 2) continue;
@@ -1640,8 +1642,8 @@ function mechCostInfo(mechs) {
     const sameCost = withCost.length > 1 && withCost.every(m => parseFloat(m.cost) === parseFloat(withCost[0].cost));
     const payer = [...withCost].sort((a, b) => a.id.localeCompare(b.id))[0];
     for (const m of g) {
-      if (sameCost && m !== payer) info.set(m.id, { counted: 0, included: true });
-      else if (!withCost.includes(m) && withCost.length) info.set(m.id, { counted: 0, included: true });
+      if (sameCost && m !== payer) info.set(m.id, { counted: 0, included: true, payer: payer.id });
+      else if (!withCost.includes(m) && withCost.length) info.set(m.id, { counted: 0, included: true, payer: payer.id });
     }
   }
   return info;
@@ -2306,16 +2308,20 @@ function mechItemHTML(m) {
   const v = data.vehicles.find(v => v.id === m.vehicleId);
   const vLabel = v ? `${esc(v.plate)} — ${esc(v.model)}` : 'Veicolo rimosso';
   const mt = getMechType(m.type);
+  const ci = costInfo().get(m.id);
+  const payer = ci?.included ? data.mechs.find(x => x.id === ci.payer) : null;
+  const payerLabel = payer ? getMechType(payer.type).label : 'un altro tipo dello stesso intervento';
   return `<div class="mech-item">
     <div class="mech-icon-wrap" style="background:${mt.color}1c">${mt.icon}</div>
     <div class="mech-info">
       <div class="mech-title">${esc(mt.label)}</div>
       <div class="mech-sub">${vLabel} · ${esc(formatDate(m.date))}${m.km ? ' · ' + Number(m.km).toLocaleString('it-IT') + ' km' : ''}${m.garage ? ' · 🏪 ' + esc(m.garage) : ''}</div>
+      ${ci?.included ? `<div class="mech-incl">🔗 Costo già conteggiato in «${esc(payerLabel)}»</div>` : ''}
       ${m.note ? `<div class="mech-note">${esc(m.note)}</div>` : ''}
       ${m.addedBy ? `<div style="font-size:11px;color:var(--ink-2);margin-top:4px">${esc(m.addedBy)}</div>` : ''}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-      <div class="mech-cost">${costInfo().get(m.id)?.included ? '<span style="font-size:12px;color:var(--ink-2);font-weight:700">incluso</span>' : formatCurrency(m.cost)}</div>
+      <div class="mech-cost">${ci?.included ? `<span class="badge incl" title="Costo già conteggiato in «${esc(payerLabel)}»">incluso</span>` : formatCurrency(m.cost)}</div>
       <div style="display:flex;gap:6px">
         <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica">✏️</button>
         <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina">🗑️</button>

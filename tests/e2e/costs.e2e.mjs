@@ -95,6 +95,8 @@ for (const [i, gid] of owners.entries()) {
     await page.waitForTimeout(800);
     const inclusi = await page.$$eval('.mech-cost', (els) => els.filter((e) => e.textContent.trim() === 'incluso').length);
     check(inclusi === 4, `voci "incluso" in Officina: ${inclusi} (attese 4 = 2 legacy + 2 nuove)`);
+    const hints = await page.$$eval('.mech-incl', (els) => els.map((e) => e.textContent.trim()));
+    check(hints.length === 4 && hints.every((h) => /^🔗 Costo già conteggiato in «.+»$/.test(h)), `indicazione "Costo già conteggiato in «…»" sotto ogni voce inclusa (${hints.length})`);
   }
   await ctx.close();
 }
