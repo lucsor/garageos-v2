@@ -1277,7 +1277,10 @@ const DEVICE = deviceKind();
 const ANDROID_ALARM_NOTE = 'Su Google Calendar i promemoria del file .ics vengono ignorati: dopo l\'importazione impostali tu nell\'evento, oppure usa 📅 → "Google Calendar" sulla singola scadenza.';
 async function deliverICS(filename, text, title, okMsg) {
   const how = await shareOrDownloadICS(filename, text, title);
-  if (how === 'downloaded') _showToast(okMsg);
+  if (how !== 'downloaded') return;
+  // iPhone senza condivisione di file: il download potrebbe non aprire nulla (soprattutto dalla Home)
+  if (DEVICE === 'ios') _showToast('📅 File creato. Se il Calendario non si apre: usa 📅 → "Google Calendar" sulla singola scadenza, oppure apri GarageOS in Safari.', 'yellow');
+  else _showToast(okMsg);
 }
 function exportDeadlinesICS() {
   const vid = document.getElementById('scad-filter-vehicle').value;
@@ -1309,9 +1312,10 @@ function openCalendarChoice(vid, kind) {
   // su Android Google Calendar è la scelta naturale e va per prima; altrove prima il file con i promemoria
   const box = document.getElementById('cal-options');
   if (DEVICE === 'android') box.prepend(g); else box.prepend(f);
-  document.getElementById('cal-note').textContent = DEVICE === 'android'
+  document.getElementById('cal-note').textContent = (DEVICE === 'android'
     ? 'Google Calendar usa le tue notifiche predefinite per gli eventi "tutto il giorno": controllale nell\'evento. Il file .ics contiene due promemoria (7 giorni e 1 giorno prima), ma Google Calendar li ignora.'
-    : 'Il file .ics contiene due promemoria (alle 9:00 di 7 giorni prima e del giorno prima). Con Google Calendar valgono invece le tue notifiche predefinite.';
+    : 'Il file .ics contiene due promemoria (alle 9:00 di 7 giorni prima e del giorno prima). Con Google Calendar valgono invece le tue notifiche predefinite.')
+    + ' Con "Google Calendar" titolo, targa e modello vengono inviati a Google (l\'importo no).';
   openModal('cal-modal');
 }
 
@@ -1612,6 +1616,12 @@ const CHANGES = {
 const NEEDS_GARAGE = new Set(['fab', 'open-modal', 'save-vehicle', 'save-tire', 'save-mech', 'save-garage-name',
   'send-invite', 'revoke-invite', 'remove-member', 'remove-legacy', 'leave-garage', 'renew',
   'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech']);
+// Esc chiude la finestra aperta in primo piano (tutte le modali tranne la conferma, che ha i suoi pulsanti)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.modal-overlay.open')].pop();
+  if (open && open.id !== 'confirm-modal') closeModal(open.id);
+});
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;

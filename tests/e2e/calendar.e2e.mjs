@@ -66,6 +66,13 @@ const g = new URL(await page.getAttribute('#cal-google', 'href'));
 check(g.hostname === 'calendar.google.com' && g.searchParams.get('dates') === `${bollo.replace(/-/g, '')}/${(() => { const d = new Date(bollo + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10).replace(/-/g, ''); })()}`,
   `link Google Calendar per la singola scadenza (${g.searchParams.get('dates')})`);
 check(await page.$eval('#cal-options', (b) => b.firstElementChild.id) === 'cal-file', 'desktop: prima scelta il file .ics con i promemoria');
+check(/inviati a Google \(l'importo no\)/.test(await page.textContent('#cal-note')), 'la finestra avvisa che con Google Calendar i dati vanno a Google');
+check(!new URL(await page.getAttribute('#cal-google', 'href')).searchParams.get('details').includes('Importo'), 'nessun importo nel link Google');
+await page.keyboard.press('Escape');
+check(!(await page.$eval('#cal-modal', (m) => m.classList.contains('open'))), 'Esc chiude la finestra');
+check(await page.getAttribute('#cal-modal .modal', 'role') === 'dialog', 'finestra con role="dialog"');
+await page.click('[data-action="cal-choice"][data-kind="bollo"]');
+await page.waitForSelector('#cal-modal.open', { timeout: T });
 [dl] = await Promise.all([page.waitForEvent('download', { timeout: T }), page.click('#cal-file')]);
 ics = (await read(dl)).replace(/\r\n /g, '');
 check(dl.suggestedFilename() === 'garageos-bollo-ca123ln.ics', `singola scadenza: ${dl.suggestedFilename()}`);

@@ -389,12 +389,12 @@
 
 <!-- MODAL: AGGIUNGI AL CALENDARIO (una scadenza) -->
 <div class="modal-overlay" id="cal-modal">
-  <div class="modal" style="max-width:400px">
-    <div class="modal-title">Aggiungi al calendario</div>
+  <div class="modal" style="max-width:400px" role="dialog" aria-modal="true" aria-labelledby="cal-modal-title">
+    <div class="modal-title" id="cal-modal-title">Aggiungi al calendario</div>
     <div class="cal-event" id="cal-title"></div>
     <div class="cal-options" id="cal-options">
       <button class="btn btn-secondary" id="cal-file" data-action="ics-one">📅 File .ics</button>
-      <a class="btn btn-secondary" id="cal-google" href="#" target="_blank" rel="noopener noreferrer">🗓️ Google Calendar</a>
+      <a class="btn btn-secondary" id="cal-google" href="#" target="_blank" rel="noopener noreferrer" data-action="close-modal" data-modal="cal-modal">🗓️ Google Calendar</a>
     </div>
     <p class="cal-hint" id="cal-note"></p>
     <div class="modal-actions">

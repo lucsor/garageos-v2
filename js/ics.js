@@ -1,6 +1,8 @@
 // Calendario: export delle scadenze in formato iCalendar (.ics, RFC 5545), con promemoria.
-// Funzioni pure (testabili in Node) + downloadICS che usa il DOM. Nessun dato lascia il dispositivo:
-// il file viene generato nel browser e aperto/importato dall'app Calendario dell'utente.
+// Funzioni pure (testabili in Node) + consegna del file (condivisione o download) che usa il DOM.
+// Il file .ics è generato nel browser e passato all'app Calendario dell'utente: nessun nostro server.
+// ECCEZIONE: il link "Google Calendar" (googleCalendarUrl) manda titolo e veicolo a calendar.google.com,
+// solo se l'utente lo tocca (l'interfaccia lo dice); l'importo previsto non viene incluso.
 
 const KINDS = {
   bollo:         { label: 'Bollo',         icon: '📋' },
@@ -48,7 +50,9 @@ function nextDay(dateStr) {
 function stamp(now) { return now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); }
 // data di oggi nel fuso del dispositivo (toISOString darebbe la data UTC: sbagliata vicino alla mezzanotte)
 export function localToday(d = new Date()) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
-const validDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + 'T00:00:00Z'));
+// data reale (2027-02-31 non passa: new Date la farebbe diventare 3 marzo)
+const validDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
+  && new Date(s + 'T00:00:00Z').toISOString().slice(0, 10) === s;
 
 // Scadenze dei veicoli attivi (non "congelati"), da oggi in avanti, ordinate per data.
 export function deadlineEvents(vehicles, { today = localToday(), vehicleId = '' } = {}) {
@@ -72,11 +76,14 @@ export function deadlineEvent(v, kind) {
   if (cost) lines.push(`Importo previsto: € ${cost}`);
   lines.push('Promemoria creato da GarageOS: https://lucsor.github.io/garageos-v2/');
   return {
-    // UID stabile: reimportando il file, i calendari che lo supportano aggiornano l'evento invece di duplicarlo
-    uid: `${v.id}-${kind}-${v[kind]}@garageos`,
+    // UID per veicolo e tipo, SENZA la data: dopo un rinnovo, reimportando il file, i calendari che
+    // gestiscono gli aggiornamenti (iPhone, Outlook) spostano l'evento invece di duplicarlo (SEQUENCE più alto).
+    // Google Calendar, all'importazione, può comunque creare un duplicato.
+    uid: `${v.id}-${kind}@garageos`,
     date: v[kind],
     summary: `${k.icon} ${label} — ${v.plate || ''}`.trim(),
     description: lines.join('\n'),
+    publicDetails: lines.filter((l) => !l.startsWith('Importo')).join('\n'),   // per il link Google: senza importo
     reminderLabel: `${label} ${v.plate || ''}`.trim(),
   };
 }
@@ -95,6 +102,8 @@ export function buildICS(events, { now = new Date(), calName = 'GarageOS — sca
       'BEGIN:VEVENT',
       `UID:${icsEscape(e.uid)}`,
       `DTSTAMP:${stamp(now)}`,
+      `LAST-MODIFIED:${stamp(now)}`,
+      `SEQUENCE:${Math.floor(now.getTime() / 60000)}`,     // cresce nel tempo: l'ultima esportazione vince
       `DTSTART;VALUE=DATE:${ymd(e.date)}`,
       `DTEND;VALUE=DATE:${ymd(nextDay(e.date))}`,
       `SUMMARY:${icsEscape(e.summary)}`,
@@ -124,7 +133,7 @@ export function googleCalendarUrl(e) {
     action: 'TEMPLATE',
     text: e.summary,
     dates: `${ymd(e.date)}/${ymd(nextDay(e.date))}`,
-    details: e.description,
+    details: e.publicDetails ?? e.description,
   });
   return 'https://calendar.google.com/calendar/render?' + p.toString();
 }

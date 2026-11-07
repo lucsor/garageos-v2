@@ -28,7 +28,7 @@ test('folding a 75 ottetti senza spezzare caratteri multibyte (emoji, accenti)',
 
 test('scadenze: solo veicoli attivi, solo date valide e future, ordinate', () => {
   const ev = deadlineEvents(V, { today });
-  assert.deepEqual(ev.map((e) => e.uid), ['v1-bollo-2027-01-31@garageos', 'v1-assicurazione-2027-03-15@garageos']);
+  assert.deepEqual(ev.map((e) => e.uid), ['v1-bollo@garageos', 'v1-assicurazione@garageos']);
   assert.equal(deadlineEvents(V, { today, vehicleId: 'v3' }).length, 0);
   assert.equal(deadlineEvents(V, { today: '2026-10-01' }).length, 3, 'la revisione del 1/11 conta se oggi è prima');
 });
