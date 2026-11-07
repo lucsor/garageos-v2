@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Elenco account Firebase Auth (SOLA LETTURA): uid, email, provider, creazione, ultimo accesso.
 //   node export-auth-users.mjs [--out <file>]     (default: <BACKUP_DIR>/auth-users-YYYYMMDD.json)
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -11,7 +11,8 @@ import { PROJECT_ID, whoami, BACKUP_DIR } from './creds.mjs';
 
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
-const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+// data e ora nel nome: un backup non sovrascrive mai un altro
+const ymd = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
 const out = resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : `${BACKUP_DIR}/auth-users-${ymd}.json`);
 
 let credential;
@@ -35,5 +36,6 @@ do {
   pageToken = page.pageToken;
 } while (pageToken);
 mkdirSync(dirname(out), { recursive: true });
+if (existsSync(out)) { console.error('Esiste già, non lo sovrascrivo: ' + out); process.exit(1); }
 writeFileSync(out, JSON.stringify({ meta: { projectId: PROJECT_ID, exportedAt: new Date().toISOString(), by: whoami() }, users }, null, 1));
 console.log(`Account Auth: ${users.length} → ${out}`);

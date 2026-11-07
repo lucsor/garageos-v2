@@ -3,7 +3,7 @@
 //   node export-firestore.mjs [--out <file>]
 // Output: JSON con documenti indicizzati per percorso completo; i tipi Firestore sono codificati
 // ({"__t":"ts",...}) così il ripristino è senza perdite. Il file contiene dati personali: NON committarlo.
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BACKUP_DIR } from './creds.mjs';
@@ -11,7 +11,8 @@ import { encode } from './restore-lib.mjs';
 import { adminDb, PROJECT_ID, whoami } from './creds.mjs';
 
 const args = process.argv.slice(2);
-const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+// data e ora nel nome: un backup non sovrascrive mai un altro
+const ymd = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
 const out = resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : `${BACKUP_DIR}/firestore-${ymd}.json`);
 
 
@@ -39,6 +40,7 @@ async function walk(collections) {
 console.log(`Export Firestore ${PROJECT_ID} come ${whoami()} (sola lettura)…`);
 await walk(await db.listCollections());
 mkdirSync(dirname(out), { recursive: true });
+if (existsSync(out)) { console.error('Esiste già, non lo sovrascrivo: ' + out); process.exit(1); }
 const payload = { meta: { projectId: PROJECT_ID, exportedAt: new Date().toISOString(), by: whoami(), format: 'garageos-export/1', counts }, documents };
 writeFileSync(out, JSON.stringify(payload, null, 1));
 console.log('File:', out);
