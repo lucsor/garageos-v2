@@ -11,6 +11,10 @@ rules_version = '2';
 //     vehicles/{id}, tires/{id}, mechs/{id}
 //     deadlines/{id}                    scadenze personalizzate (v2.4): numeri veri e timestamp del server
 //   invites/{token}                     token = 256 bit casuali in esadecimale, scadenza ≤ 7 giorni, uso singolo
+//   users/{uid}.push                    preferenze promemoria {enabled, days[], details}
+//   users/{uid}/pushTokens/{sha256}     token FCM dei dispositivi: SOLO il proprietario li vede
+//   pushLog/{id}                        registro degli invii: solo lo script di invio (Admin SDK)
+//   pushStatus/heartbeat                ultima esecuzione dello script: leggibile da chi ha fatto login
 //
 // Compatibilità con i dati esistenti: in UPDATE si validano solo i campi AGGIUNTI o MODIFICATI,
 // così un documento legacy con campi sconosciuti, null o valori fuori misura resta modificabile
@@ -56,13 +60,55 @@ service cloud.firestore {
       allow get: if signedIn() && request.auth.uid == uid;
       allow list, delete: if false;
       allow create, update: if signedIn() && request.auth.uid == uid && validUser(uid, request.resource.data);
+
+      // Token push dei dispositivi. Nessuno, nemmeno gli altri membri del garage, legge i token altrui
+      // (anche le query collectionGroup sono negate: questa regola vale solo per il proprio percorso).
+      // L'ID è lo SHA-256 del token: un dispositivo = un documento, niente duplicati.
+      match /pushTokens/{tid} {
+        allow get, list, delete: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn() && request.auth.uid == uid
+          && validPushToken(tid, request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.lastSeenAt == request.time;
+        allow update: if signedIn() && request.auth.uid == uid
+          && validPushToken(tid, request.resource.data)
+          && request.resource.data.token == resource.data.token
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.lastSeenAt == request.time;
+      }
     }
+    function validPushToken(tid, d) {
+      return d.keys().hasOnly(['token', 'platform', 'createdAt', 'lastSeenAt', 'appVersion'])
+        && d.keys().hasAll(['token', 'platform', 'createdAt', 'lastSeenAt'])
+        && d.token is string && d.token.size() > 0 && d.token.size() <= 4096
+        && hashing.sha256(d.token).toHexString().lower() == tid
+        && d.platform in ['ios', 'android', 'desktop']
+        && optStr(d, 'appVersion', 20);
+    }
+    // giorni di preavviso ammessi (la UI offre solo questi)
+    function pushDays() { return [0, 1, 2, 3, 5, 7, 10, 14, 15, 21, 30, 45, 60, 90]; }
+    function validPush(p) {
+      return p is map && p.keys().hasOnly(['enabled', 'days', 'details'])
+        && (!('enabled' in p) || p.enabled is bool)
+        && (!('details' in p) || p.details is bool)
+        && (!('days' in p) || (p.days is list && p.days.size() >= 1 && p.days.size() <= 5
+                               && p.days.toSet().hasOnly(pushDays())));
+    }
+
+    // ───────── promemoria: registro e stato dello script di invio ─────────
+    match /pushLog/{id} { allow read, write: if false; }
+    match /pushStatus/{id} {
+      allow get: if signedIn();                   // solo date ed esito, nessun dato personale
+      allow list, write: if false;
+    }
+
     function validUser(uid, d) {
-      return d.keys().hasOnly(['garageId', 'email', 'name', 'updatedAt'])
+      return d.keys().hasOnly(['garageId', 'email', 'name', 'updatedAt', 'push'])
         && validId(d.garageId)
         // si può puntare solo al proprio garage o a uno di cui si è membro (dopo questa scrittura)
         && (d.garageId == uid || uid in getAfter(gPath(d.garageId)).data.get('memberUids', []))
-        && optStr(d, 'email', 254) && optStr(d, 'name', 100) && optTs(d, 'updatedAt');
+        && optStr(d, 'email', 254) && optStr(d, 'name', 100) && optTs(d, 'updatedAt')
+        && (!('push' in d) || validPush(d.push));
     }
 
     // ───────── garages ─────────

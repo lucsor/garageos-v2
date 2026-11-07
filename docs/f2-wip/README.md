@@ -1,4 +1,6 @@
-# F2 — Scadenze personalizzate (IN PAUSA dal 2026-11-07)
+# F2 — Scadenze personalizzate (INTEGRATO il 2026-11-07, PR in bozza; regole NON pubblicate)
+
+> Le bozze di questa cartella sono state portate nell'app: la finestra è in `index.html` (`#deadline-modal`), l'e2e in `tests/e2e/deadlines.e2e.mjs`. La cartella resta solo come storia: si può eliminare (con l'ok del proprietario).
 
 Messo in pausa per dare priorità alle notifiche push. **Niente di questo è in produzione** e le regole non sono pubblicate.
 

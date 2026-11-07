@@ -14,7 +14,11 @@ import {
 import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechType, formatDate, formatCurrency, addYears } from './utils.js';
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
-import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
+import { createPush, DAY_OPTIONS } from './push.js';
+import { initLegacyBanner } from './legacy-banner.js';
+import { deadlineEvents, deadlineEvent, customDeadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
+import { DEADLINE_KINDS, REPEAT_OPTIONS, deadlineKind, collectDeadlines, advanceDue, deadlineFromForm } from './deadlines.js';
+const KIND_ICONS = Object.fromEntries(DEADLINE_KINDS.map(k => [k.id, k.icon]));
 
 // ===== FIREBASE CONFIG =====
 const firebaseConfig = {
@@ -45,6 +49,11 @@ if (USE_EMULATOR) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   console.warn('[GarageOS] Emulatori locali attivi');
 }
+// Promemoria push (FCM): vedi js/push.js
+const push = createPush({ app, db, getUser: () => currentUser, emulator: USE_EMULATOR });
+
+// Arrivo dalla vecchia icona della v1 (?from=v1): avviso + pulizia dell'URL, prima degli altri parametri
+try { initLegacyBanner(); } catch(e) { console.warn('[GarageOS] avviso vecchia icona:', e); }
 
 // ===== STATE =====
 let currentUser = null;
@@ -53,7 +62,7 @@ let isOwner     = false;
 let currentTab  = 'garage';
 let currentSubTab = 'meccanica';
 const emptyData = () => ({
-  vehicles: [], tires: [], mechs: [],
+  vehicles: [], tires: [], mechs: [], deadlines: [],
   memberUids: [], memberInfo: {}, legacyMembers: [], invites: [],
   garageOwner: null, garageName: '',
 });
@@ -197,6 +206,8 @@ async function signOutUser() {
     new Promise(r => setTimeout(() => r(false), 4000)),
   ]);
   if (!flushed && !await showConfirm('Ci sono modifiche non ancora sincronizzate (sei offline?). Se esci adesso andranno perse. Uscire comunque?')) return;
+  // il dispositivo non deve più ricevere i promemoria di questo account
+  await Promise.race([push.disableHere().catch(() => {}), new Promise(r => setTimeout(r, 4000))]);
   await fbSignOut(auth);
   resetSession();
   // La cache locale (IndexedDB) e la cache delle notifiche contengono i dati del garage:
@@ -270,6 +281,8 @@ async function _resolveOnce() {
     if (currentUser !== user) return;   // utente cambiato nel frattempo
     _retryDelay = 2000;
     startListeners();
+    push.refresh().catch(e => console.warn('promemoria:', e.code || e.message));
+    if (location.hash === '#scadenze') { switchTab('scadenze'); history.replaceState(null, '', location.pathname + location.search); }
   } catch(e) {
     if (!(e instanceof TransientError)) throw e;
     console.warn('Risoluzione garage rinviata (errore transitorio):', e.message);
@@ -474,7 +487,17 @@ function startListeners() {
     },
     onListenError
   );
-  _unsubscribers = [u1, u2, u3, u4];
+  // scadenze personalizzate (F2): un errore qui (es. regole non ancora pubblicate) non deve bloccare il resto
+  const u6 = onSnapshot(
+    query(collection(db, base + '/deadlines'), orderBy('due')),
+    snap => {
+      data.deadlines = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderAll();
+      saveDeadlineSnapshot().then(() => triggerDeadlineCheck());
+    },
+    err => { console.warn('deadlines:', err.code || err.message); data.deadlines = []; renderAll(); }
+  );
+  _unsubscribers = [u1, u2, u3, u4, u6];
   if (isOwner) {
     const u5 = onSnapshot(
       query(collection(db, 'invites'), where('garageId', '==', garageId)),
@@ -523,6 +546,7 @@ async function removeVehicle(id) {
     deleteDoc(vDoc('vehicles', id)),
     ...data.tires.filter(t => t.vehicleId === id).map(t => deleteDoc(vDoc('tires', t.id))),
     ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
+    ...data.deadlines.filter(d => d.vehicleId === id).map(d => deleteDoc(vDoc('deadlines', d.id))),
   ]);
 }
 async function removeTire(id) { await deleteDoc(vDoc('tires', id)); }
@@ -692,12 +716,12 @@ function exportTiresCSV() {
 // ===== NOTIFICHE =====
 async function saveDeadlineSnapshot() {
   try {
-    const deadlines = [];
-    data.vehicles.filter(v => !v.frozen).forEach(v => {
-      if (v.bollo) deadlines.push({ plate: v.plate, label: 'Bollo', date: v.bollo });
-      if (v.revisione) deadlines.push({ plate: v.plate, label: 'Revisione', date: v.revisione });
-      if (v.assicurazione) deadlines.push({ plate: v.plate, label: 'Assicurazione', date: v.assicurazione });
-    });
+    // veicoli + scadenze personalizzate (senza veicolo: "Garage" al posto della targa)
+    const deadlines = collectDeadlines(data.vehicles, data.deadlines).map(it => ({
+      plate: it.vehicle ? it.vehicle.plate : 'Garage',
+      label: it.source === 'vehicle' ? ({ bollo: 'Bollo', revisione: 'Revisione', assicurazione: 'Assicurazione' })[it.kind] : it.label,
+      date: it.date,
+    }));
     const cache = await caches.open('garageos-notif');
     const prev = await cache.match('notif-data');
     const lastNotified = prev ? ((await prev.json()).lastNotified || 0) : 0;
@@ -916,12 +940,103 @@ function switchSubTab(name) {
 
 function updateFab() {
   const fab = document.getElementById('fab');
-  const show = currentTab === 'garage' || currentTab === 'officina';
+  const show = currentTab === 'garage' || currentTab === 'officina' || currentTab === 'scadenze';
   fab.classList.toggle('show', show);
+  fab.setAttribute('aria-label', currentTab === 'scadenze' ? 'Nuova scadenza' : currentTab === 'officina' ? 'Nuovo intervento' : 'Nuovo veicolo');
 }
 function fabAction() {
   if (currentTab === 'garage') openModal('vehicle-modal');
   else if (currentTab === 'officina') openModal(currentSubTab === 'meccanica' ? 'mech-modal' : 'tire-modal');
+  else if (currentTab === 'scadenze') openDeadlineModal();
+}
+
+// ===== SCADENZE PERSONALIZZATE (F2: garages/{g}/deadlines) =====
+function openDeadlineModal(id = '') {
+  const d = id ? data.deadlines.find(x => x.id === id) : null;
+  if (id && !d) return;
+  const kindSel = document.getElementById('d-kind');
+  kindSel.innerHTML = DEADLINE_KINDS.map(k => `<option value="${esc(k.id)}">${k.icon} ${esc(k.label)}</option>`).join('');
+  const vSel = document.getElementById('d-vehicle');
+  vSel.innerHTML = '<option value="">🏠 Tutto il garage</option>' +
+    data.vehicles.filter(v => !v.frozen || v.id === d?.vehicleId)
+      .map(v => `<option value="${esc(v.id)}">${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+  document.getElementById('d-repeat').innerHTML = REPEAT_OPTIONS
+    .map(r => `<option value="${r.months ?? ''}">${esc(r.label)}</option>`).join('');
+  const filterV = document.getElementById('scad-filter-vehicle').value;
+  document.getElementById('d-edit-id').value = d ? d.id : '';
+  kindSel.value = d ? deadlineKind(d.kind).id : 'tagliando';
+  document.getElementById('d-label').value = d ? d.label : deadlineKind(kindSel.value).label;
+  document.getElementById('d-label').dataset.auto = d ? '' : '1';
+  vSel.value = d ? (d.vehicleId || '') : filterV;
+  document.getElementById('d-due').value = d ? d.due : '';
+  document.getElementById('d-repeat').value = d && d.repeatMonths ? String(d.repeatMonths) : '';
+  document.getElementById('d-cost').value = d && typeof d.cost === 'number' ? String(d.cost) : '';
+  document.getElementById('d-note').value = d ? (d.note || '') : '';
+  document.getElementById('deadline-modal-title').textContent = d ? 'Modifica scadenza' : 'Nuova scadenza';
+  document.getElementById('btn-delete-deadline').style.display = d ? '' : 'none';
+  openModal('deadline-modal');
+  // openModal precompila con "oggi" le date vuote: per una scadenza nuova la data la sceglie l'utente
+  document.getElementById('d-due').value = d ? d.due : '';
+}
+// cambiando tipo, la descrizione segue il tipo finché l'utente non l'ha scritta lui
+function onDeadlineKindChange() {
+  const label = document.getElementById('d-label');
+  const known = DEADLINE_KINDS.some(k => k.label === label.value);
+  if (label.dataset.auto === '1' || !label.value.trim() || known) {
+    label.value = deadlineKind(document.getElementById('d-kind').value).label;
+    label.dataset.auto = '1';
+  }
+}
+async function saveDeadline() {
+  const id = document.getElementById('d-edit-id').value;
+  const f = {
+    kind: document.getElementById('d-kind').value,
+    label: document.getElementById('d-label').value,
+    vehicleId: document.getElementById('d-vehicle').value,
+    due: document.getElementById('d-due').value,
+    repeatMonths: document.getElementById('d-repeat').value,
+    cost: document.getElementById('d-cost').value.trim(),
+    note: document.getElementById('d-note').value,
+  };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.due)) { _showToast('Inserisci la data di scadenza', 'red'); return; }
+  if (f.cost !== '' && !/^\d{1,7}([.,]\d{1,2})?$/.test(f.cost)) { _showToast('Importo non valido (es. 80 o 80,50)', 'red'); return; }
+  const doc_ = deadlineFromForm(f);
+  setButtonLoading('btn-save-deadline', true);
+  try {
+    const ref = vDoc('deadlines', id || newId('deadlines'));
+    if (id) await written(setDoc(ref, { ...doc_, updatedAt: serverTimestamp() }, { merge: true }));
+    else await written(setDoc(ref, { ...doc_, addedBy: (currentUser?.email || '').toLowerCase(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    closeModal('deadline-modal');
+    _showToast(id ? '✅ Scadenza aggiornata' : '✅ Scadenza aggiunta');
+  } catch(e) {
+    _showToast(e.code === 'permission-denied' ? 'Salvataggio non consentito: le regole del database non sono ancora aggiornate' : 'Errore: ' + (e.code || e.message), 'red');
+  } finally { setButtonLoading('btn-save-deadline', false); }
+}
+async function deleteDeadline() {
+  const id = document.getElementById('d-edit-id').value;
+  const d = data.deadlines.find(x => x.id === id);
+  if (!d || !await showConfirm(`Eliminare la scadenza "${d.label}"?`)) return;
+  try { await written(deleteDoc(vDoc('deadlines', id))); closeModal('deadline-modal'); _showToast('🗑️ Scadenza eliminata'); }
+  catch(e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
+}
+// "Fatto": ricorrente → prossima data (saltando i periodi già passati); singola → eliminata
+async function deadlineDone(id) {
+  const d = data.deadlines.find(x => x.id === id);
+  if (!d) return;
+  try {
+    if (d.repeatMonths) {
+      const today = localToday();
+      let next = advanceDue(d.due, d.repeatMonths);
+      for (let i = 0; next < today && i < 1200; i++) next = advanceDue(next, d.repeatMonths);
+      if (!await showConfirm(`Segnare "${d.label}" come fatta? Prossima scadenza: ${formatDate(next)}.`)) return;
+      await written(setDoc(vDoc('deadlines', id), { due: next, updatedAt: serverTimestamp() }, { merge: true }));
+      _showToast(`✅ Prossima scadenza ${formatDate(next)}`);
+    } else {
+      if (!await showConfirm(`Segnare "${d.label}" come fatta? Non si ripete: verrà tolta dall'elenco.`)) return;
+      await written(deleteDoc(vDoc('deadlines', id)));
+      _showToast('✅ Fatta');
+    }
+  } catch(e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
 }
 
 // ===== BUTTON LOADING =====
@@ -1123,13 +1238,11 @@ function renderHeader() {
 
 function nextDeadline() {
   let best = null;
-  data.vehicles.filter(v => !v.frozen).forEach(v => {
-    [['Bollo', v.bollo], ['Revisione', v.revisione], ['Assicurazione', v.assicurazione]].forEach(([label, date]) => {
-      if (!date) return;
-      const d = daysUntil(date);
-      if (d === null) return;
-      if (!best || d < best.days) best = { days: d, label, plate: v.plate, date };
-    });
+  collectDeadlines(data.vehicles, data.deadlines).forEach(it => {
+    const d = daysUntil(it.date);
+    if (d === null) return;
+    const label = it.source === 'vehicle' ? ({ bollo: 'Bollo', revisione: 'Revisione', assicurazione: 'Assicurazione' })[it.kind] : it.label;
+    if (!best || d < best.days) best = { days: d, label, plate: it.vehicle ? it.vehicle.plate : 'Tutto il garage', date: it.date };
   });
   return best;
 }
@@ -1236,15 +1349,11 @@ function renderScadenze() {
   const list = document.getElementById('scadenze-list');
   sel.innerHTML = '<option value="">Tutti i veicoli</option>' +
     data.vehicles.map(v => `<option value="${esc(v.id)}" ${filterV === v.id ? 'selected' : ''}>${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
-  let items = [];
-  data.vehicles.filter(v => !v.frozen && (!filterV || v.id === filterV)).forEach(v => {
-    if (v.bollo) items.push({ vehicle: v, kind: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
-    if (v.revisione) items.push({ vehicle: v, kind: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
-    if (v.assicurazione) items.push({ vehicle: v, kind: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
-  });
+  const items = collectDeadlines(data.vehicles, data.deadlines, { vehicleId: filterV });
   document.getElementById('cal-android-note').textContent = DEVICE === 'android' ? ANDROID_ALARM_NOTE : '';
-  if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
-  items.sort((a, b) => new Date(a.date) - new Date(b.date));
+  let iosHintOff = false; try { iosHintOff = localStorage.getItem('garageos_ios_hint') === '1'; } catch {}
+  document.getElementById('push-ios-hint').hidden = !(push.supportState() === 'ios-install' && !iosHintOff);
+  if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.<br>Con <b>+</b> aggiungi tagliando, ZTL, abbonamenti, garanzie…</p></div>`; return; }
   const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
   const softs = { green: 'var(--green-soft)', yellow: 'var(--yellow-soft)', red: 'var(--red-soft)' };
   list.innerHTML = items.map(item => {
@@ -1252,6 +1361,29 @@ function renderScadenze() {
     const cls = badgeClass(days) || 'green';
     const daysText = days === null ? '?' : days < 0 ? 'SCADUTO' : days === 0 ? 'OGGI' : days + ' gg';
     const pct = days === null ? 100 : Math.max(3, Math.min(100, 100 - (days / 365) * 100));
+    if (item.source === 'custom') {
+      const dl = item.deadline;
+      const where = item.vehicle ? item.vehicle.plate : 'Tutto il garage';
+      const rep = REPEAT_OPTIONS.find(r => r.months === dl.repeatMonths);
+      const subParts = [item.vehicle ? item.vehicle.model : '', 'Scade: ' + formatDate(item.date), dl.repeatMonths ? '🔁 ' + (rep ? rep.label.toLowerCase() : `ogni ${dl.repeatMonths} mesi`) : ''].filter(Boolean);
+      return `<div class="scadenza-item">
+      <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
+      <div class="sc-info">
+        <div class="sc-title">${esc(item.label)} — ${esc(where)}${typeof item.cost === 'number' && item.cost > 0 ? ` <span style="color:var(--green);font-size:13px">· €${item.cost.toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-sub">${esc(subParts.join(' · '))}</div>
+        ${dl.note ? `<div class="sc-sub">${esc(dl.note)}</div>` : ''}
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+        <div style="display:flex;gap:6px">
+          ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(dl.id)}" data-kind="custom" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} al calendario">📅</button>` : ''}
+          <button class="icon-btn" data-action="edit-deadline" data-id="${esc(dl.id)}" title="Modifica" aria-label="Modifica ${esc(item.label)}">✏️</button>
+          <button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="deadline-done" data-id="${esc(dl.id)}">✅ Fatto</button>
+        </div>
+      </div>
+    </div>`;
+    }
     return `<div class="scadenza-item">
       <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
       <div class="sc-info">
@@ -1270,6 +1402,77 @@ function renderScadenze() {
   }).join('');
 }
 
+// ===== PROMEMORIA PUSH (finestra) =====
+const PUSH_UNAVAILABLE = {
+  'ios-old': 'Su questo iPhone le notifiche delle app web richiedono iOS 16.4 o successivo. Puoi usare 📅 Calendario nella scheda Scadenze: i promemoria li gestisce il telefono.',
+  'unsupported': 'Questo browser non supporta le notifiche push. Puoi usare 📅 Calendario nella scheda Scadenze.',
+  'unconfigured': 'I promemoria push non sono ancora attivi per GarageOS: arriveranno a breve.',
+};
+const dayLabel = d => d === 0 ? 'Il giorno stesso' : d === 1 ? '1 giorno prima' : `${d} giorni prima`;
+async function openPushModal() {
+  const state = push.supportState();
+  const ok = state === 'ok';
+  document.getElementById('push-ios').hidden = state !== 'ios-install';
+  document.getElementById('push-unavailable').textContent = PUSH_UNAVAILABLE[state] || '';
+  document.getElementById('push-device').hidden = !ok;
+  document.getElementById('push-prefs').hidden = !ok;
+  document.getElementById('push-save').hidden = !ok;
+  renderPushDevice();
+  openModal('push-modal');
+  if (!ok) return;
+  try {
+    const prefs = await push.loadPrefs();
+    document.getElementById('push-days').innerHTML = DAY_OPTIONS.map(d =>
+      `<label class="push-day"><input type="checkbox" value="${d}" ${prefs.days.includes(d) ? 'checked' : ''}> ${dayLabel(d)}</label>`).join('');
+    document.getElementById('push-details').checked = prefs.details;
+  } catch (e) { _showToast('Preferenze non disponibili: ' + (e.code || e.message), 'yellow'); }
+  const hb = await push.heartbeat();
+  const el = document.getElementById('push-heartbeat');
+  el.textContent = '';
+  if (hb?.lastRunAt?.toDate) {
+    const when = hb.lastRunAt.toDate();
+    const days = Math.floor((Date.now() - when.getTime()) / 86400000);
+    el.textContent = days >= 3 && isOwner
+      ? `⚠️ L'invio dei promemoria non gira da ${days} giorni: controlla il workflow "Promemoria scadenze" su GitHub.`
+      : `Ultimo controllo dei promemoria: ${when.toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+  }
+}
+function renderPushDevice() {
+  const active = push.isActiveHere();
+  const denied = globalThis.Notification?.permission === 'denied';
+  document.getElementById('push-status').textContent = active
+    ? '✅ Promemoria attivi su questo dispositivo.'
+    : denied ? '🚫 Le notifiche sono bloccate per GarageOS nelle impostazioni del browser o del telefono: sbloccale lì, poi riprova.'
+    : 'Promemoria non attivi su questo dispositivo.';
+  const b = document.getElementById('push-toggle');
+  b.textContent = active ? 'Disattiva su questo dispositivo' : '🔔 Attiva su questo dispositivo';
+  b.className = active ? 'btn btn-secondary' : 'btn btn-primary';
+  b.disabled = denied && !active;
+}
+async function togglePushHere() {
+  const b = document.getElementById('push-toggle');
+  b.disabled = true;
+  try {
+    if (push.isActiveHere()) { await push.disableHere(); _showToast('Promemoria disattivati su questo dispositivo'); }
+    else {
+      const r = await push.enableHere();   // il permesso viene chiesto qui, dopo il tocco
+      _showToast(r === 'enabled' ? '🔔 Promemoria attivi su questo dispositivo' : 'Permesso per le notifiche negato', r === 'enabled' ? 'green' : 'yellow');
+    }
+  } catch (e) { _showToast('Promemoria: ' + (e.code || e.message), 'red'); }
+  b.disabled = false;
+  renderPushDevice();
+}
+async function savePushPrefs() {
+  const days = [...document.querySelectorAll('#push-days input:checked')].map(i => Number(i.value));
+  if (!days.length) { _showToast('Scegli almeno un giorno di preavviso', 'yellow'); return; }
+  if (days.length > 5) { _showToast('Al massimo 5 promemoria per scadenza', 'yellow'); return; }
+  try {
+    await written(push.savePrefs({ days, details: document.getElementById('push-details').checked }));
+    closeModal('push-modal');
+    _showToast('Preferenze dei promemoria salvate');
+  } catch (e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
+}
+
 // ===== CALENDARIO (.ics) =====
 // Tutte le scadenze future (rispettando il filtro veicolo), oppure una sola: file .ics con promemoria
 // a 7 giorni e al giorno prima, da aprire con l'app Calendario (iPhone, Android, Google, Outlook).
@@ -1284,25 +1487,36 @@ async function deliverICS(filename, text, title, okMsg) {
 }
 function exportDeadlinesICS() {
   const vid = document.getElementById('scad-filter-vehicle').value;
-  const events = deadlineEvents(data.vehicles, { vehicleId: vid });
+  const events = deadlineEvents(data.vehicles, { vehicleId: vid, custom: data.deadlines, icons: KIND_ICONS });
   if (!events.length) { _showToast('Nessuna scadenza futura da aggiungere al calendario', 'yellow'); return; }
   const v = vid && data.vehicles.find(x => x.id === vid);
   deliverICS(icsFilename('scadenze', v ? v.plate : '', localToday()), buildICS(events), 'Scadenze GarageOS',
     `📅 ${events.length} ${events.length === 1 ? 'scadenza' : 'scadenze'}: apri il file per aggiungerle al calendario`);
 }
-function exportOneDeadlineICS(vid, kind) {
-  const v = data.vehicles.find(x => x.id === vid);
-  if (!v || !v[kind]) return;
-  const e = deadlineEvent(v, kind);
+// evento di una scadenza: del veicolo (id = veicolo, kind = bollo/…) o personalizzata (kind = 'custom', id = scadenza)
+function calEvent(id, kind) {
+  if (kind === 'custom') {
+    const d = data.deadlines.find(x => x.id === id);
+    if (!d) return null;
+    const v = d.vehicleId ? data.vehicles.find(x => x.id === d.vehicleId) || null : null;
+    return { e: customDeadlineEvent(d, v, KIND_ICONS[d.kind]), file: icsFilename(d.kind, v ? v.plate : 'garage') };
+  }
+  const v = data.vehicles.find(x => x.id === id);
+  if (!v || !v[kind]) return null;
+  return { e: deadlineEvent(v, kind), file: icsFilename(kind, v.plate) };
+}
+function exportOneDeadlineICS(id, kind) {
+  const c = calEvent(id, kind);
+  if (!c) return;
   closeModal('cal-modal');
-  deliverICS(icsFilename(kind, v.plate), buildICS([e], { calName: e.summary }), e.summary,
+  deliverICS(c.file, buildICS([c.e], { calName: c.e.summary }), c.e.summary,
     '📅 Apri il file per aggiungere la scadenza al calendario');
 }
 // 📅 su una scadenza: scelta tra Google Calendar (link) e file .ics (con i promemoria)
 function openCalendarChoice(vid, kind) {
-  const v = data.vehicles.find(x => x.id === vid);
-  if (!v || !v[kind]) return;
-  const e = deadlineEvent(v, kind);
+  const c = calEvent(vid, kind);
+  if (!c) return;
+  const e = c.e;
   document.getElementById('cal-title').textContent = `${e.summary} · ${formatDate(e.date)}`;
   const g = document.getElementById('cal-google');
   g.href = googleCalendarUrl(e);
@@ -1535,14 +1749,14 @@ function kmAlerts() {
 function renderNotifications() {
   const wrap = document.getElementById('notif-wrap');
   const chips = [];
-  data.vehicles.filter(v => !v.frozen).forEach(v => {
-    const checks = [['Bollo', daysUntil(v.bollo)], ['Revisione', daysUntil(v.revisione)], ['Assic.', daysUntil(v.assicurazione)]];
-    checks.forEach(([label, d]) => {
-      if (d !== null && d <= 30) chips.push({
-        cls: d <= 10 ? 'red' : 'yellow',
-        tab: 'scadenze',
-        text: `${esc(v.plate)} · ${label}: ${d <= 0 ? 'SCADUTO' : d + 'gg'}`
-      });
+  collectDeadlines(data.vehicles, data.deadlines).forEach(it => {
+    const d = daysUntil(it.date);
+    if (d === null || d > 30) return;
+    const label = it.source === 'vehicle' ? ({ bollo: 'Bollo', revisione: 'Revisione', assicurazione: 'Assic.' })[it.kind] : it.label;
+    chips.push({
+      cls: d <= 10 ? 'red' : 'yellow',
+      tab: 'scadenze',
+      text: `${esc(it.vehicle ? it.vehicle.plate : 'Garage')} · ${esc(label)}: ${d <= 0 ? 'SCADUTO' : d + 'gg'}`
     });
   });
   const badge = document.getElementById('scad-badge');
@@ -1578,6 +1792,10 @@ const ACTIONS = {
   'garage-name':      () => openGarageName(),
   'tab':              d => { toggleUserMenu(false); switchTab(d.tab, d.vehicle); },
   'enable-notif':     () => { toggleUserMenu(false); enableNotifications(); },
+  'open-push':        () => { toggleUserMenu(false); openPushModal(); },
+  'push-toggle':      () => togglePushHere(),
+  'push-save':        () => savePushPrefs(),
+  'push-ios-dismiss': () => { try { localStorage.setItem('garageos_ios_hint', '1'); } catch {} renderScadenze(); },
   'subtab':           d => switchSubTab(d.sub),
   'fab':              () => fabAction(),
   'open-modal':       d => openModal(d.modal),
@@ -1606,8 +1824,13 @@ const ACTIONS = {
   'delete-mech':      d => deleteMech(d.id),
   'toggle-year':      d => toggleYearGroup(d.year),
   'toggle-mech-type': d => toggleMechType(d.type),
+  'save-deadline':    () => saveDeadline(),
+  'delete-deadline':  () => deleteDeadline(),
+  'edit-deadline':    d => openDeadlineModal(d.id),
+  'deadline-done':    d => deadlineDone(d.id),
 };
 const CHANGES = {
+  'deadline-kind': () => onDeadlineKindChange(),
   'scadenze':   () => renderScadenze(),
   'meccanica':  () => renderMeccanica(),
   'pneumatici': () => renderPneumatici(),
@@ -1615,7 +1838,8 @@ const CHANGES = {
 // Azioni che scrivono su Firestore: bloccate finché il garage non è risolto (evita scritture su garages/null)
 const NEEDS_GARAGE = new Set(['fab', 'open-modal', 'save-vehicle', 'save-tire', 'save-mech', 'save-garage-name',
   'send-invite', 'revoke-invite', 'remove-member', 'remove-legacy', 'leave-garage', 'renew',
-  'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech']);
+  'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech',
+  'save-deadline', 'delete-deadline', 'edit-deadline', 'deadline-done']);
 // Esc chiude la finestra aperta in primo piano (tutte le modali tranne la conferma, che ha i suoi pulsanti)
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
@@ -1672,6 +1896,10 @@ if ('serviceWorker' in navigator) {
   // aggiornamento = da un controller a un altro (reload), anche se nella stessa sessione c'era stata l'installazione.
   let _controller = navigator.serviceWorker.controller;
   let _refreshing = false;
+  // click su una notifica di promemoria con l'app già aperta → scheda Scadenze
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'OPEN_TAB' && e.data.tab === 'scadenze' && currentUser) switchTab('scadenze');
+  });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     const hadController = !!_controller;
     _controller = navigator.serviceWorker.controller;

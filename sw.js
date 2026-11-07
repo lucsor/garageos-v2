@@ -1,6 +1,6 @@
 // ===== GarageOS Service Worker =====
 // Aggiorna questo numero ogni volta che carichi una nuova versione! (il pre-commit hook lo controlla)
-const VERSION = '2.4.2-wip';
+const VERSION = '2.5.1';
 const CACHE_PREFIX = 'garageos-v';            // solo le cache con questo prefisso appartengono a questo SW
 const CACHE_NAME = CACHE_PREFIX + VERSION;
 const NOTIF_CACHE = 'garageos-notif';         // snapshot scadenze per le notifiche: NON va mai cancellata
@@ -19,7 +19,9 @@ const PRECACHE = [
   './js/csv.js',
   './js/costs.js',
   './js/ics.js',
-  './js/deadlines.js',          // F2 (in pausa): non ancora importato da app.js
+  './js/push.js',
+  './js/legacy-banner.js',
+  './js/deadlines.js',
   // SDK Firebase (URL versionati e immutabili, CORS aperto): senza questi l'app offline resta bianca
   FIREBASE_SDK + 'firebase-app.js',
   FIREBASE_SDK + 'firebase-firestore.js',
@@ -154,14 +156,32 @@ async function checkDeadlines() {
   } catch (e) { console.warn('[SW] checkDeadlines:', e); }
 }
 
-// Click sulla notifica → apri/focalizza l'app
+// ── Push dei promemoria (FCM, messaggio "data" inviato da tools/admin/send-reminders.mjs).
+// Ogni push DEVE mostrare una notifica (obbligatorio su iOS e Chrome): anche se il contenuto è illeggibile.
+self.addEventListener('push', event => {
+  let p = {};
+  try { p = event.data ? event.data.json() : {}; } catch { p = {}; }
+  const d = p.data || p.notification || {};
+  event.waitUntil(self.registration.showNotification(String(d.title || 'GarageOS — Scadenze').slice(0, 100), {
+    body: String(d.body || 'Hai scadenze in arrivo').slice(0, 500),
+    icon: 'icon-192.png', badge: 'icon-192.png',
+    tag: String(d.tag || 'garageos-reminders').slice(0, 64),
+    data: { url: d.url === './#scadenze' ? './#scadenze' : './' },    // solo URL interni noti
+  }));
+});
+
+// Click sulla notifica → apri/focalizza l'app (sulla scheda Scadenze se è un promemoria)
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const url = event.notification.data?.url || './';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       const client = list.find(c => 'focus' in c);
-      if (client) return client.focus();
-      return clients.openWindow('./');
+      if (client) {
+        if (url !== './') client.postMessage({ type: 'OPEN_TAB', tab: 'scadenze' });
+        return client.focus();
+      }
+      return clients.openWindow(url);
     })
   );
 });
