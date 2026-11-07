@@ -5,7 +5,7 @@ revisione, assicurazione), cambi gomme, interventi meccanici e garage
 condiviso con inviti.
 
 **Stack:** HTML/CSS/JS in un solo file · Firebase Auth (Google) · Firestore realtime · PWA
-**Versione:** 2.2.0 — vedi [CHANGELOG](CHANGELOG.md)
+**Versione:** 2.3.0 (in preparazione) — vedi [CHANGELOG](CHANGELOG.md)
 
 ## Sicurezza (v2.2)
 - **Inviti** in `invites/{token}`: token casuale di 256 bit, valido 7 giorni, utilizzabile una sola volta,
@@ -17,6 +17,12 @@ condiviso con inviti.
 - Gli **ID dei documenti** sono generati solo da Firestore e validati dalle regole.
 - Regole Firestore versionate in [`firestore.rules`](firestore.rules) e coperte da test sull'emulatore.
 
+## Pre-commit hook (consigliato)
+```sh
+git config core.hooksPath .githooks
+```
+Blocca il commit se l'hash CSP di `index.html` in staging non corrisponde, o se cambiano file dell'app senza incrementare `VERSION` in `sw.js`.
+
 ## ⚠️ Dopo OGNI modifica allo script in `index.html`
 L'unico script inline è autorizzato nella CSP tramite hash SHA-256. Se l'hash non corrisponde, **l'app resta bianca**.
 ```sh
@@ -26,11 +32,17 @@ node tools/csp-hash.mjs --check  # verifica (prima di ogni commit)
 Poi incrementa `VERSION` in `sw.js`.
 
 ## Test delle regole (Firebase Emulator)
-Richiede Node 20+ e **Java 21** nel `PATH`.
+Richiede Node 20+ e **Java 21** nel `PATH` (gli emulatori Firebase sono in Java). Installazione, una volta:
+```sh
+winget install --id EclipseAdoptium.Temurin.21.JDK -e    # Windows (imposta PATH e JAVA_HOME)
+# macOS: brew install --cask temurin@21 · Linux: openjdk-21-jdk
+```
+Dopo l'installazione apri un nuovo terminale. Ogni suite controlla prima la versione (`tools/check-java.mjs`) e, se Java manca, dice cosa fare.
 ```sh
 cd tests/rules && npm install
 npm test               # firestore.rules (suite completa)
 npm run test:audit     # suite dell'audit sul vecchio flusso (es. RULES=baseline/published.rules)
+npm run test:prod-data # regole sui dati reali (backup in ~/Documents/garageos-backup)
 ```
 
 ## Sviluppo locale con emulatori

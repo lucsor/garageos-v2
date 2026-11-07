@@ -1,0 +1,29 @@
+#!/bin/sh
+# GarageOS — pre-commit hook. Attivazione (una volta per clone):  git config core.hooksPath .githooks
+#  1. index.html in staging: l'hash SHA-256 dello script inline deve corrispondere alla CSP (altrimenti app bianca in produzione)
+#  2. file dell'app in staging: VERSION in sw.js deve essere cambiata rispetto a HEAD (altrimenti i client non si aggiornano)
+#     Override consapevole: SKIP_SW_VERSION_CHECK=1 git commit ...
+staged() { git diff --cached --name-only --diff-filter=ACMR; }
+fail=0
+
+if staged | grep -qx 'index.html'; then
+  tmp=$(mktemp) || exit 1
+  git show :index.html > "$tmp"
+  if ! node tools/csp-hash.mjs --check --file "$tmp" >/dev/null 2>&1; then
+    echo "✖ pre-commit: l'hash CSP in index.html (staging) non corrisponde allo script inline."
+    echo "  Esegui: node tools/csp-hash.mjs && git add index.html"
+    fail=1
+  fi
+  rm -f "$tmp"
+fi
+
+if [ -z "$SKIP_SW_VERSION_CHECK" ] && staged | grep -qE '^(index\.html|sw\.js|manifest\.json|icon-.*\.png|favicon\.ico)$'; then
+  new=$(git show :sw.js 2>/dev/null | grep -o "VERSION = '[^']*'")
+  old=$(git show HEAD:sw.js 2>/dev/null | grep -o "VERSION = '[^']*'")
+  if [ -n "$old" ] && [ "$new" = "$old" ]; then
+    echo "✖ pre-commit: hai modificato file dell'app ma VERSION in sw.js è invariata ($old)."
+    echo "  Incrementala (es. 2.3.0 → 2.3.1) e fai git add sw.js. Override: SKIP_SW_VERSION_CHECK=1"
+    fail=1
+  fi
+fi
+exit $fail

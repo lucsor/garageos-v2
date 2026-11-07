@@ -1,63 +1,96 @@
 // ===== GarageOS Service Worker =====
-// Aggiorna questo numero ogni volta che carichi una nuova versione!
-const VERSION = '2.2.0';
-const CACHE_NAME = 'garageos-v' + VERSION;
+// Aggiorna questo numero ogni volta che carichi una nuova versione! (il pre-commit hook lo controlla)
+const VERSION = '2.3.0';
+const CACHE_PREFIX = 'garageos-v';            // solo le cache con questo prefisso appartengono a questo SW
+const CACHE_NAME = CACHE_PREFIX + VERSION;
+const NOTIF_CACHE = 'garageos-notif';         // snapshot scadenze per le notifiche: NON va mai cancellata
+const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.11.0/';
 
-// File da cachare per uso offline (path RELATIVI: funzionano ovunque sia hostata l'app)
+// File da cachare per l'uso offline (path RELATIVI: funzionano ovunque sia hostata l'app)
 const PRECACHE = [
   './',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  // SDK Firebase (URL versionati e immutabili, CORS aperto): senza questi l'app offline resta bianca
+  FIREBASE_SDK + 'firebase-app.js',
+  FIREBASE_SDK + 'firebase-firestore.js',
+  FIREBASE_SDK + 'firebase-auth.js',
 ];
 
-// ── Install: precache i file principali
+// ── Install: precache (singolarmente: un file mancante non deve far fallire tutto)
 self.addEventListener('install', event => {
   console.log('[SW] Install v' + VERSION);
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache =>
-      // addAll fallisce tutto se un file manca: cache singolarmente e ignora gli errori
-      Promise.allSettled(PRECACHE.map(u => cache.add(u)))
+      Promise.allSettled(PRECACHE.map(u => cache.add(new Request(u, { cache: 'reload' }))))
     )
   );
-  // NON fare skipWaiting automatico — aspetta che l'utente clicchi "Aggiorna"
+  // NON fare skipWaiting automatico — aspetta che l'utente tocchi "Aggiorna"
 });
 
-// ── Activate: cancella le vecchie cache
+// ── Activate: cancella SOLO le versioni precedenti di questa app.
+// (Prima cancellava ogni cache ≠ corrente, compresa garageos-notif e le cache di altre app sulla stessa origine.)
 self.addEventListener('activate', event => {
   console.log('[SW] Activate v' + VERSION);
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map(k => caches.delete(k))
       )
     ).then(() => self.clients.claim())
   );
 });
 
-// ── Fetch: network-first, fallback cache offline (solo stessa origin)
+// ── Fetch
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.protocol === 'chrome-extension:') return;
 
-  // Lascia passare Firebase, Google Fonts e CDN esterni
-  if (url.origin !== self.location.origin || url.protocol === 'chrome-extension:') {
-    return; // lascia al browser
+  // SDK Firebase: cache-first (URL versionato = contenuto immutabile)
+  if (url.href.startsWith(FIREBASE_SDK)) {
+    event.respondWith(cacheFirst(req));
+    return;
   }
+  // Google Fonts (CSS + file): cache-first, salvati al primo uso; se mancano l'app usa i font di sistema
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+    event.respondWith(cacheFirst(req).catch(() => new Response('', { status: 504 })));
+    return;
+  }
+  // Tutto il resto fuori origine (Firestore, Auth, ...): lascia al browser / all'SDK (che ha la sua cache offline)
+  if (url.origin !== self.location.origin) return;
 
+  // Stessa origine: network-first, fallback cache (offline)
   event.respondWith(
-    fetch(event.request)
+    fetch(req)
       .then(response => {
-        if (response.ok && event.request.method === 'GET') {
+        // non salvare le varianti con query string (?invite=..., ?emulator) come pagine separate
+        if (response.ok && !url.search) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         }
         return response;
       })
       .catch(() =>
-        caches.match(event.request).then(cached => cached || caches.match('./'))
+        caches.match(req, { ignoreSearch: req.mode === 'navigate' })
+          .then(cached => cached || caches.match('./'))
       )
   );
 });
+
+async function cacheFirst(req) {
+  const cached = await caches.match(req);
+  if (cached) return cached;
+  const response = await fetch(req);
+  // solo risposte complete (niente 206 parziali, che cache.put rifiuta)
+  if (response.status === 200 || response.type === 'opaque') {
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(req, response.clone()).catch(() => {});
+  }
+  return response;
+}
 
 // ── Messaggio dall'app: attiva nuova versione / controlla scadenze
 self.addEventListener('message', event => {
@@ -80,7 +113,7 @@ self.addEventListener('periodicsync', event => {
 async function checkDeadlines() {
   try {
     if (self.Notification && Notification.permission !== 'granted') return;
-    const cache = await caches.open('garageos-notif');
+    const cache = await caches.open(NOTIF_CACHE);
     const res = await cache.match('notif-data');
     if (!res) return;
     const state = await res.json();

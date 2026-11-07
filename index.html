@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-1QJegI2IeoJG3FKHnyNH2L4AhR4Ct71TXz8zb+JYd5w=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-TFsF6Gw1d3Vp50kaORaZXph+iRKCdE04YRpMMFK6e+4=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -216,6 +216,8 @@
   .badge.yellow { background: var(--yellow-soft); color: #b57608; }
   .badge.red    { background: var(--red-soft);    color: var(--red); }
   .badge.frozen { background: var(--blue-soft);   color: var(--blue); }
+  .badge.incl   { background: var(--blue-soft);   color: var(--blue); font-size: 12.5px; letter-spacing: 0; }
+  .mech-incl { font-size: 12px; color: var(--blue); font-weight: 600; margin-top: 4px; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
   .vc-actions { display: flex; gap: 8px; margin-top: 16px; }
   .vehicle-card.frozen { opacity: 0.75; }
@@ -932,9 +934,10 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js';
 import {
-  getFirestore, collection, doc, where, writeBatch, runTransaction, serverTimestamp, Timestamp,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, where, writeBatch, runTransaction, serverTimestamp, Timestamp,
   onSnapshot, setDoc, deleteDoc, query, orderBy, getDoc, arrayUnion, arrayRemove, deleteField,
-  connectFirestoreEmulator
+  connectFirestoreEmulator, waitForPendingWrites, terminate, clearIndexedDbPersistence
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
@@ -952,7 +955,12 @@ const firebaseConfig = {
 };
 
 const app  = initializeApp(firebaseConfig);
-const db   = getFirestore(app);
+// Cache locale persistente (IndexedDB, condivisa tra schede): l'app mostra i dati anche offline
+// e le modifiche fatte offline vengono inviate al ritorno della rete. Se IndexedDB non è disponibile
+// (es. alcune modalità private) l'SDK ripiega sulla cache in memoria.
+const db   = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
@@ -1112,12 +1120,21 @@ function resetSession() {
 }
 
 async function signOutUser() {
+  toggleUserMenu(false);
+  // Modifiche fatte offline e non ancora inviate: uscendo (e svuotando la cache locale) andrebbero perse.
+  const flushed = await Promise.race([
+    waitForPendingWrites(db).then(() => true, () => true),
+    new Promise(r => setTimeout(() => r(false), 4000)),
+  ]);
+  if (!flushed && !await showConfirm('Ci sono modifiche non ancora sincronizzate (sei offline?). Se esci adesso andranno perse. Uscire comunque?')) return;
   await fbSignOut(auth);
   resetSession();
-  document.getElementById('login-screen').classList.remove('hidden');
-  document.getElementById('app').classList.remove('visible');
-  document.getElementById('user-avatar').style.display = 'none';
-  toggleUserMenu(false);
+  // La cache locale (IndexedDB) e la cache delle notifiche contengono i dati del garage:
+  // su un dispositivo condiviso non devono restare a disposizione del prossimo utente.
+  try { await caches.delete('garageos-notif'); } catch {}
+  try { await terminate(db); await clearIndexedDbPersistence(db); }
+  catch (e) { console.warn('cache locale non svuotata (altra scheda aperta?):', e.code || e); }
+  window.location.reload();   // riparte con un'istanza Firestore nuova
 }
 
 function toggleUserMenu(force) {
@@ -1192,7 +1209,11 @@ async function _resolveOnce() {
     _retryDelay = Math.min(_retryDelay * 2, 60000);
   }
 }
-window.addEventListener('online', () => { if (currentUser && !garageId) resolveGarageWithRetry(); });
+window.addEventListener('online', () => {
+  if (currentUser && !garageId) resolveGarageWithRetry();
+  else if (garageId) setStatus('online');
+});
+window.addEventListener('offline', () => { if (garageId) setStatus('cache'); });
 
 async function resolveGarage(user) {
   const uref = doc(db, 'users', user.uid);
@@ -1344,7 +1365,7 @@ function startListeners() {
     query(collection(db, base + '/vehicles'), orderBy('plate')),
     snap => {
       data.vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setStatus('online');
+      setStatus(snap.metadata.fromCache && !navigator.onLine ? 'cache' : 'online');
       renderAll();
       saveDeadlineSnapshot().then(() => triggerDeadlineCheck());
     },
@@ -1401,22 +1422,35 @@ function setStatus(state) {
   const cfg = {
     loading: { text: '⏳ Connessione…' },
     online:  { text: '● Sync' },
+    cache:   { text: '● Offline · dati locali' },
     error:   { text: '● Offline' },
   }[state];
-  el.style.color = state === 'online' ? '#4fe3b0' : state === 'error' ? '#ff9ba0' : 'rgba(255,255,255,0.75)';
+  el.style.color = state === 'online' ? '#4fe3b0' : state === 'error' ? '#ff9ba0' : state === 'cache' ? '#ffc555' : 'rgba(255,255,255,0.75)';
   el.textContent = cfg.text;
 }
 
 // ===== FIRESTORE CRUD =====
 // Gli ID dei documenti sono generati SOLO da Firestore (mai dall'utente): vedi newId().
 function vDoc(name, id) { return doc(db, `garages/${garageId}/${name}/${id}`); }
+// Una scrittura è applicata SUBITO alla cache locale, ma la promessa si risolve solo alla conferma del server:
+// offline non arriverebbe mai (modale bloccata in caricamento). Dopo 2,5 s la si considera "in coda":
+// verrà inviata al ritorno della rete; un eventuale rifiuto successivo viene comunque mostrato.
+async function written(p) {
+  const QUEUED = Symbol('queued');
+  const r = await Promise.race([p, new Promise(res => setTimeout(() => res(QUEUED), 2500))]);
+  if (r === QUEUED) {
+    p.catch(e => _showToast('Modifica non sincronizzata: ' + (e.code || e.message), 'red'));
+    _showToast('Salvato sul dispositivo: verrà sincronizzato appena torna la rete', 'yellow');
+  }
+}
 function newId(name) { return doc(collection(db, `garages/${garageId}/${name}`)).id; }
 async function addVehicle(v) { const { id, ...rest } = v; await setDoc(vDoc('vehicles', id), rest); }
 async function addTire(t)    { const { id, ...rest } = t; await setDoc(vDoc('tires', id), rest); }
 async function addMech(m)    { const { id, ...rest } = m; await setDoc(vDoc('mechs', id), rest); }
 async function removeVehicle(id) {
-  await deleteDoc(vDoc('vehicles', id));
+  // tutte insieme: offline una cancellazione "attende" il server e bloccherebbe le successive
   await Promise.all([
+    deleteDoc(vDoc('vehicles', id)),
     ...data.tires.filter(t => t.vehicleId === id).map(t => deleteDoc(vDoc('tires', t.id))),
     ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
   ]);
@@ -1609,6 +1643,40 @@ function downloadCSV(filename, rows) {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+// ===== COSTI DEGLI INTERVENTI MULTI-TIPO =====
+// Un salvataggio con N tipi crea N documenti con lo stesso createdAt (stesso veicolo e data) = un "gruppo".
+// - Gruppo legacy (v2.2 e precedenti): ogni documento ha lo STESSO costo → si conta una volta sola.
+// - Gruppo nuovo (v2.3): costo solo sul primo documento, gli altri vuoti → "incluso".
+// - Costi diversi nello stesso gruppo (modificati a mano): sono costi reali, si contano tutti.
+function mechCostInfo(mechs) {
+  const groups = new Map();
+  for (const m of mechs) {
+    if (!m.createdAt) continue;
+    const k = `${m.vehicleId}|${m.date}|${m.createdAt}`;
+    (groups.get(k) || groups.set(k, []).get(k)).push(m);
+  }
+  const info = new Map();   // id → { counted: number, included: bool, payer?: id del documento che porta il costo }
+  for (const m of mechs) info.set(m.id, { counted: parseFloat(m.cost) || 0, included: false });
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    const withCost = g.filter(m => (parseFloat(m.cost) || 0) > 0);
+    const sameCost = withCost.length > 1 && withCost.every(m => parseFloat(m.cost) === parseFloat(withCost[0].cost));
+    const payer = [...withCost].sort((a, b) => a.id.localeCompare(b.id))[0];
+    for (const m of g) {
+      if (sameCost && m !== payer) info.set(m.id, { counted: 0, included: true, payer: payer.id });
+      else if (!withCost.includes(m) && withCost.length) info.set(m.id, { counted: 0, included: true, payer: payer.id });
+    }
+  }
+  return info;
+}
+let _costInfoFor = null, _costInfo = new Map();
+function costInfo() {
+  if (_costInfoFor !== data.mechs) { _costInfo = mechCostInfo(data.mechs); _costInfoFor = data.mechs; }
+  return _costInfo;
+}
+const mechCost = m => costInfo().get(m.id)?.counted ?? (parseFloat(m.cost) || 0);
+const sumCost = list => list.reduce((s, m) => s + mechCost(m), 0);
+
 function vehicleLabel(id) {
   const v = data.vehicles.find(v => v.id === id);
   return v ? `${v.plate} ${v.model}` : 'Veicolo rimosso';
@@ -1623,9 +1691,9 @@ function exportMechsCSV() {
   const rows = [['Data', 'Veicolo', 'Intervento', 'Km', 'Costo (€)', 'Officina', 'Note', 'Inserito da']];
   mechs.forEach(m => rows.push([
     m.date || '', vehicleLabel(m.vehicleId), getMechType(m.type).label,
-    m.km || '', m.cost || '', m.garage || '', m.note || '', m.addedBy || ''
+    m.km || '', costInfo().get(m.id)?.included ? 'incluso' : (m.cost || ''), m.garage || '', m.note || '', m.addedBy || ''
   ]));
-  const tot = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const tot = sumCost(mechs);
   rows.push([]);
   rows.push(['', '', 'TOTALE', '', tot, '', '', '']);
   downloadCSV(`garageos-interventi-${new Date().toISOString().split('T')[0]}.csv`, rows);
@@ -1712,15 +1780,14 @@ async function renewDeadline(vid, kind) {
   if (!await showConfirm(`Segnare ${conf.label} di ${v.plate} come rinnovato? Nuova scadenza: ${formatDate(newDate)}.${costMsg}`)) return;
   try {
     const now = new Date().toISOString();
-    await addVehicle({ ...v, [conf.field]: newDate, updatedAt: now });
-    await addMech({
+    await written(Promise.all([addVehicle({ ...v, [conf.field]: newDate, updatedAt: now }), addMech({
       id: newId('mechs'), vehicleId: vid, type: kind,
       date: now.split('T')[0], km: v.km || '',
       cost: v[conf.costField] || '', garage: '',
       note: `Rinnovo ${conf.label} — nuova scadenza ${formatDate(newDate)}`,
       createdAt: now, updatedAt: now,
       addedBy: currentUser?.email || '?',
-    });
+    })]));
     _showToast(`✅ ${conf.label} rinnovato · prossima scadenza ${formatDate(newDate)}`);
   } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
@@ -1951,7 +2018,7 @@ async function saveVehicle() {
   };
   setButtonLoading('btn-save-vehicle', true);
   try {
-    await addVehicle(v);
+    await written(addVehicle(v));
     closeModal('vehicle-modal');
   } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
   setButtonLoading('btn-save-vehicle', false);
@@ -1959,7 +2026,7 @@ async function saveVehicle() {
 
 async function deleteVehicle(id) {
   if (!await showConfirm('Eliminare questo veicolo e tutti i suoi dati?')) return;
-  try { await removeVehicle(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  try { await written(removeVehicle(id)); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
 
 // ===== TIRE CRUD =====
@@ -2001,14 +2068,14 @@ async function saveTire() {
     updatedAt: new Date().toISOString(),
   };
   setButtonLoading('btn-save-tire', true);
-  try { await addTire(t); closeModal('tire-modal'); }
+  try { await written(addTire(t)); closeModal('tire-modal'); }
   catch(e) { _showToast('Errore: ' + e.message, 'red'); }
   setButtonLoading('btn-save-tire', false);
 }
 
 async function deleteTire(id) {
   if (!await showConfirm('Eliminare questo cambio gomme?')) return;
-  try { await removeTire(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  try { await written(removeTire(id)); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
 
 // ===== MECH CRUD =====
@@ -2053,9 +2120,12 @@ async function saveMech() {
   setButtonLoading('btn-save-mech', true);
   try {
     if (isEdit) {
-      await addMech({ ...base, id: editId, type: _selectedMechTypes[0] });
+      await written(addMech({ ...base, id: editId, type: _selectedMechTypes[0] }));
     } else {
-      await Promise.all(_selectedMechTypes.map(type => addMech({ ...base, id: newId('mechs'), type })));
+      // Più tipi = più documenti (modello attuale): il costo va SOLO sul primo, gli altri risultano "inclusi".
+      // (Prima ogni documento riceveva l'intero costo → totali moltiplicati per il numero di tipi.)
+      await written(Promise.all(_selectedMechTypes.map((type, i) =>
+        addMech({ ...base, id: newId('mechs'), type, cost: i === 0 ? base.cost : '' }))));
     }
     closeModal('mech-modal');
     ['m-km','m-cost','m-garage','m-note'].forEach(id => document.getElementById(id).value = '');
@@ -2065,7 +2135,7 @@ async function saveMech() {
 
 async function deleteMech(id) {
   if (!await showConfirm('Eliminare questo intervento?')) return;
-  try { await removeMech(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  try { await written(removeMech(id)); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
 
 // ===== RENDER: HEADER + HERO =====
@@ -2114,7 +2184,7 @@ function renderHero() {
 // ===== RENDER: STATS + VEICOLI =====
 function renderStats() {
   const statsRow = document.getElementById('stats-row');
-  const totalCosts = data.mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const totalCosts = sumCost(data.mechs);
   const membersN = data.memberUids.length + 1;
   const frozenN = data.vehicles.filter(v => v.frozen).length;
   const activeN = data.vehicles.length - frozenN;
@@ -2152,7 +2222,7 @@ function renderDashboard() {
   const sorted = [...data.vehicles].sort((a, b) => (a.frozen ? 1 : 0) - (b.frozen ? 1 : 0));
   grid.innerHTML = sorted.map(v => {
     const vMechs = data.mechs.filter(m => m.vehicleId === v.id);
-    const vCost = vMechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    const vCost = sumCost(vMechs);
     const costLine = vMechs.length
       ? `<div class="vc-meta" style="margin-top:4px">🔧 ${vMechs.length} interventi · <b style="color:var(--ink)">€${Math.round(vCost).toLocaleString('it-IT')}</b></div>`
       : '';
@@ -2258,16 +2328,20 @@ function mechItemHTML(m) {
   const v = data.vehicles.find(v => v.id === m.vehicleId);
   const vLabel = v ? `${esc(v.plate)} — ${esc(v.model)}` : 'Veicolo rimosso';
   const mt = getMechType(m.type);
+  const ci = costInfo().get(m.id);
+  const payer = ci?.included ? data.mechs.find(x => x.id === ci.payer) : null;
+  const payerLabel = payer ? getMechType(payer.type).label : 'un altro tipo dello stesso intervento';
   return `<div class="mech-item">
     <div class="mech-icon-wrap" style="background:${mt.color}1c">${mt.icon}</div>
     <div class="mech-info">
       <div class="mech-title">${esc(mt.label)}</div>
       <div class="mech-sub">${vLabel} · ${esc(formatDate(m.date))}${m.km ? ' · ' + Number(m.km).toLocaleString('it-IT') + ' km' : ''}${m.garage ? ' · 🏪 ' + esc(m.garage) : ''}</div>
+      ${ci?.included ? `<div class="mech-incl">🔗 Costo già conteggiato in «${esc(payerLabel)}»</div>` : ''}
       ${m.note ? `<div class="mech-note">${esc(m.note)}</div>` : ''}
       ${m.addedBy ? `<div style="font-size:11px;color:var(--ink-2);margin-top:4px">${esc(m.addedBy)}</div>` : ''}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-      <div class="mech-cost">${formatCurrency(m.cost)}</div>
+      <div class="mech-cost">${ci?.included ? `<span class="badge incl" title="Costo già conteggiato in «${esc(payerLabel)}»">incluso</span>` : formatCurrency(m.cost)}</div>
       <div style="display:flex;gap:6px">
         <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica">✏️</button>
         <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina">🗑️</button>
@@ -2308,13 +2382,13 @@ function renderMeccanica() {
     (byYear[yr] = byYear[yr] || []).push(m);
   });
   const years = Object.keys(byYear).sort((a, b) => b - a);
-  const totalCost = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const totalCost = sumCost(mechs);
 
   let html = `<div class="mech-summary">${mechs.length} interventi · ${years.length} ${years.length === 1 ? 'anno' : 'anni'} · Totale: <strong>€${totalCost.toLocaleString('it-IT')}</strong></div>`;
 
   // Grafico costi per anno (se almeno 2 anni)
   const chronoYears = [...years].reverse().slice(-8).filter(y => y !== 'N/D');
-  const yearCosts = chronoYears.map(y => byYear[y].reduce((s, m) => s + (parseFloat(m.cost) || 0), 0));
+  const yearCosts = chronoYears.map(y => sumCost(byYear[y]));
   const maxCost = Math.max(...yearCosts, 1);
   if (chronoYears.length >= 2 && maxCost > 0) {
     html += `<div class="cost-chart">` + chronoYears.map((y, i) => {
@@ -2329,7 +2403,7 @@ function renderMeccanica() {
 
   years.forEach((yr, idx) => {
     const items = byYear[yr];
-    const yrCost = items.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    const yrCost = sumCost(items);
     const isCurrentYear = yr == new Date().getFullYear();
     const autoOpen = idx === 0 || isCurrentYear;
     html += `<div class="year-group">
@@ -2539,7 +2613,7 @@ function applyUpdate() {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    reg.update();
+    reg.update().catch(() => {});   // offline: nessun controllo aggiornamenti, non è un errore
     reg.addEventListener('updatefound', () => {
       const newWorker = reg.installing;
       newWorker.addEventListener('statechange', () => {
@@ -2554,7 +2628,20 @@ if ('serviceWorker' in navigator) {
       document.getElementById('update-banner').classList.add('show');
     }
   }).catch(err => console.log('SW registration failed:', err));
-  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload());
+  // Ricarica SOLO se un SW controllava già la pagina (= aggiornamento richiesto dall'utente) e una volta sola.
+  // Alla prima installazione clients.claim() fa scattare controllerchange: prima ricaricava la pagina,
+  // anche durante il popup di login.
+  // La condizione va valutata a OGNI cambio: prima installazione = da nessun controller a uno (niente reload);
+  // aggiornamento = da un controller a un altro (reload), anche se nella stessa sessione c'era stata l'installazione.
+  let _controller = navigator.serviceWorker.controller;
+  let _refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const hadController = !!_controller;
+    _controller = navigator.serviceWorker.controller;
+    if (!hadController || _refreshing) return;
+    _refreshing = true;
+    window.location.reload();
+  });
 }
 
 // ===== INIT =====
