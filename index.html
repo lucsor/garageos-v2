@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-m5V9m/R19oSQepSydz6cbLAGlB/lX5h2o8PplWbfmGA=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-FCfUbuxGie+Tl/3wFeg0UMRbQuE/y2HdCKJJk/JDGy8=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -932,7 +932,8 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js';
 import {
-  getFirestore, collection, doc, where, writeBatch, runTransaction, serverTimestamp, Timestamp,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, where, writeBatch, runTransaction, serverTimestamp, Timestamp,
   onSnapshot, setDoc, deleteDoc, query, orderBy, getDoc, arrayUnion, arrayRemove, deleteField,
   connectFirestoreEmulator
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
@@ -952,7 +953,12 @@ const firebaseConfig = {
 };
 
 const app  = initializeApp(firebaseConfig);
-const db   = getFirestore(app);
+// Cache locale persistente (IndexedDB, condivisa tra schede): l'app mostra i dati anche offline
+// e le modifiche fatte offline vengono inviate al ritorno della rete. Se IndexedDB non è disponibile
+// (es. alcune modalità private) l'SDK ripiega sulla cache in memoria.
+const db   = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
@@ -1192,7 +1198,11 @@ async function _resolveOnce() {
     _retryDelay = Math.min(_retryDelay * 2, 60000);
   }
 }
-window.addEventListener('online', () => { if (currentUser && !garageId) resolveGarageWithRetry(); });
+window.addEventListener('online', () => {
+  if (currentUser && !garageId) resolveGarageWithRetry();
+  else if (garageId) setStatus('online');
+});
+window.addEventListener('offline', () => { if (garageId) setStatus('cache'); });
 
 async function resolveGarage(user) {
   const uref = doc(db, 'users', user.uid);
@@ -1344,7 +1354,7 @@ function startListeners() {
     query(collection(db, base + '/vehicles'), orderBy('plate')),
     snap => {
       data.vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setStatus('online');
+      setStatus(snap.metadata.fromCache && !navigator.onLine ? 'cache' : 'online');
       renderAll();
       saveDeadlineSnapshot().then(() => triggerDeadlineCheck());
     },
@@ -1401,9 +1411,10 @@ function setStatus(state) {
   const cfg = {
     loading: { text: '⏳ Connessione…' },
     online:  { text: '● Sync' },
+    cache:   { text: '● Offline · dati locali' },
     error:   { text: '● Offline' },
   }[state];
-  el.style.color = state === 'online' ? '#4fe3b0' : state === 'error' ? '#ff9ba0' : 'rgba(255,255,255,0.75)';
+  el.style.color = state === 'online' ? '#4fe3b0' : state === 'error' ? '#ff9ba0' : state === 'cache' ? '#ffc555' : 'rgba(255,255,255,0.75)';
   el.textContent = cfg.text;
 }
 
