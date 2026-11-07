@@ -1,10 +1,20 @@
-# Stato del lavoro — aggiornato 2026-11-07 sera
+# Stato del lavoro — aggiornato 2026-11-07, 16:00
 
 > **Cosa ti serve fare, in ordine di priorità**
-> 1. **Chiave API:** `localhost:*` risulta rimosso, ma **`localhost:5173` era ancora consentito** al controllo delle 14:40 (richiesta di prova con `Referer: http://localhost:5173/` → accettata; con `localhost:8000` → bloccata). Ricontrolla la voce `localhost:5173/*`: dovrebbero restare solo `https://lucsor.github.io/*` e `https://garageos-879bc.firebaseapp.com/*`.
-> 2. **Provare la v2.3 dal telefono** (lista al §3.1) dopo il merge.
-> 3. **App Check:** creare la chiave reCAPTCHA (§3.2); senza chiave non posso attivare il monitoraggio.
-> 4. Mandare il link agli amici (§1.3) e invitare francesco dalla scheda Famiglia.
+> 1. **Rivedere la PR della v2.4 (moduli ES)**: aperta, non unita.
+> 2. **Prove dal telefono della v2.3** (§3.1): esito non ancora comunicato.
+> 3. Invitare francesco dalla scheda Famiglia.
+>
+> Chiave API: ricontrollata alle 15:46, **a posto** (tutte le voci localhost bloccate; consentiti solo `lucsor.github.io` e `garageos-879bc.firebaseapp.com`).
+
+### Branch
+| Branch | Stato |
+|---|---|
+| `main` | v2.3.0 in produzione + CI (PR #3 unita) |
+| `feat/v2.4-modules` | PR aperta, **non unita**: moduli ES rigenerati da `main` aggiornato (output identico allo script) |
+| `feat/v2.4-calendar` | calendario/promemoria .ics, sopra i moduli |
+| `feat/v2.3.1-appcheck` | **congelato, non pubblicato** (vedi §3.2) |
+| `refactor/modules` | cancellato (superato da `feat/v2.4-modules`) |
 
 ---
 
@@ -107,12 +117,11 @@ Non corretti, di proposito: casi limite dell'euristica dei costi (es. eliminando
 4. **Costi:** nuovo intervento con 2-3 tipi e un costo → in Officina il primo tipo ha il costo, gli altri il badge blu "incluso" e la riga "🔗 Costo già conteggiato in «…»"; il totale in Garage aumenta del costo una sola volta.
 5. **Logout:** esci e rientra → i dati si ricaricano (la cache locale era stata svuotata).
 
-### 3.2 App Check (v2.3.1), solo monitoraggio
-Serve un'azione tua nella Console Firebase, che non posso fare io (registrazione di una chiave sul progetto):
-1. Console Firebase → **App Check** → app web → provider **reCAPTCHA v3** (gratuito, non richiede il piano Blaze; reCAPTCHA Enterprise potrebbe richiedere un account di fatturazione) → crea la chiave su `google.com/recaptcha/admin` per i domini `lucsor.github.io` e `garageos-879bc.firebaseapp.com` → incolla la secret nella Console.
-2. Mi mandi la **site key** (è pubblica, finisce nel codice).
-3. Io preparo `v2.3.1`: SDK App Check + domini reCAPTCHA nella CSP, **senza enforcement** (in Console Firestore resta "Non applicato"). Test e2e con il debug provider sull'emulatore.
-4. Dopo qualche giorno ti mostro le metriche (Console → App Check → Firestore: richieste verificate / non verificate / obsolete). L'enforcement lo decidi tu, solo se le non verificate sono ~0 per gli utenti reali.
+### 3.2 App Check: rimandato (decisione del 2026-11-07)
+**Motivo:** reCAPTCHA Classic (v3) come provider di App Check in Firebase è deprecato, e il sostituto (reCAPTCHA Enterprise / Fraud Defense) richiede il piano **Blaze**. Restiamo su Spark, quindi niente App Check per ora.
+- Il branch `feat/v2.3.1-appcheck` resta **com'è, non pubblicato**: SDK App Check con import dinamico, CSP per reCAPTCHA, badge nascosto con attribuzione, test `appcheck.e2e.mjs`. La secret registrata in Console non ha effetti (enforcement spento, nessun client invia token).
+- **Alternativa futura, se si passa a Blaze:** Fraud Defense / reCAPTCHA Enterprise come provider. Dal branch basta cambiare il provider (`ReCaptchaEnterpriseProvider`) e la chiave, poi monitoraggio per qualche settimana prima dell'enforcement. Dopo i moduli ES il codice va spostato da `index.html` in `js/app.js`.
+- Intanto la protezione resta quella delle regole Firestore (accesso solo ai membri) e la restrizione della chiave API ai due domini.
 
 ### 3.3 Pulizia dei `members[]` legacy: controllo in sola lettura
 Prerequisito: lucoli76, geom.milite e matulamichele devono aver usato la v2 almeno una volta.

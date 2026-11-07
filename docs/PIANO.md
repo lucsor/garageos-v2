@@ -18,7 +18,7 @@
 | # | Task | Stima | Stato | Note |
 |---|---|---|---|---|
 | S1 | **Togliere `localhost:*` e `localhost:5173/*` dalla chiave API** | 5 min | ⏳ **tu** | Restano solo `lucsor.github.io/*` e `garageos-879bc.firebaseapp.com/*` |
-| S2 | App Check (reCAPTCHA Enterprise): registrazione, SDK, **monitor** per 2 settimane, poi enforce su Firestore | 3 h | ⏳ | gratuito fino a 10.000 verifiche al mese; da aggiungere alla CSP: `https://www.google.com/recaptcha/`, `https://www.gstatic.com/recaptcha/` |
+| S2 | App Check (reCAPTCHA Enterprise): registrazione, SDK, **monitor** per 2 settimane, poi enforce su Firestore | 3 h | ⏸ rimandato: reCAPTCHA v3 deprecato in Firebase, Fraud Defense richiede Blaze; branch `feat/v2.3.1-appcheck` congelato | gratuito fino a 10.000 verifiche al mese; da aggiungere alla CSP: `https://www.google.com/recaptcha/`, `https://www.gstatic.com/recaptcha/` |
 | S3 | Pre-commit hook: `csp-hash --check` + controllo del bump di `VERSION` in `sw.js` | 1 h | 🔧 `fix/v2.3` | `git config core.hooksPath .githooks` |
 | S4 | TTL sugli `invites` (`expiresAt`) e pulizia dei `members[]` legacy dalla UI | 1 h | ⏳ | policy TTL dalla Console; nessun costo |
 | S5 | CI su GitHub Actions: test delle regole + `csp-hash --check` a ogni PR | 2 h | ⏳ | gratuito (repo pubblico) |
@@ -73,7 +73,7 @@
 
 ## Decisioni del 2026-11-07
 - **v2.3.0:** pubblicata dopo la review indipendente (vedi `STATO.md` §3.1).
-- **v2.3.1:** App Check **solo monitoraggio** (S2); pulizia `members[]` (S4) solo quando `tools/admin/check-v2-logins.mjs` dà ✔ per i 3 amici.
+- **v2.3.1:** App Check **rimandato** (S2, vedi `STATO.md` §3.2); pulizia `members[]` (S4) solo quando `tools/admin/check-v2-logins.mjs` dà ✔ per i 3 amici.
 - **Ordine della v2.4:** 1) U4 moduli ES (`refactor/modules` ribasato su `main`) → 2) F1 calendario/.ics + F2 scadenze → 3) F3 rifornimenti + F4 spese annue. F5 (più garage) resta per ultimo, in v2.5.
 - **Costi multi-tipo:** "costo sul primo tipo + incluso" fino alla v3, poi un documento con `types[]`.
 
