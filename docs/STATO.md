@@ -43,10 +43,10 @@ Nessuna scrittura in produzione, nessun push, nessun deploy.
 ### 2.1 Branch
 | Branch | Base | Commit | Contenuto |
 |---|---|---|---|
-| `fix/v2.3` | `main` (`e864c6f`) | 12 | Fase 2 e 3 (documenti) + v2.3.0 pronta da rivedere |
-| `refactor/modules` | `fix/v2.3` | +2 | prototipo moduli ES (v2.4.0-modules) |
+| `fix/v2.3` | `main` (`e864c6f`) | 11 (9 di lavoro + 2 di questo `STATO.md`) | Fase 2 e 3 (documenti) + v2.3.0 pronta da rivedere |
+| `refactor/modules` | `fix/v2.3` al commit `4c53db6` (i 9 di lavoro, senza `STATO.md`) | 11 (9 + 2 del prototipo) | prototipo moduli ES (v2.4.0-modules) |
 
-Il repo locale ha `core.hooksPath = .githooks` (pre-commit hook attivo). La cartella di lavoro è su `fix/v2.3`.
+Il repo locale ha `core.hooksPath = .githooks` (pre-commit hook attivo). La cartella di lavoro è su `fix/v2.3`. Conteggi verificabili con `git rev-list --count main..<branch>`; questa correzione è un amend del commit di `STATO.md`, quindi non cambia il totale.
 
 ### 2.2 Fatto
 | # | Cosa | Dove | Test |
