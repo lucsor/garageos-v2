@@ -43,9 +43,13 @@ async function open({ ua = ANDROID, standalone = false, installPrompt = null } =
 }
 const visible = (page) => page.$eval('#legacy-banner', (el) => !el.hidden && getComputedStyle(el).display !== 'none');
 const settle = (page) => page.waitForFunction(() => typeof document.getElementById('legacy-banner')?.hidden === 'boolean' && document.readyState === 'complete', null, { timeout: T }).then(() => page.waitForTimeout(400));
-// Esclusa solo l'iframe dell'emulatore di Auth (getRedirectResult con UA mobile): esiste anche su main e
-// non in produzione, dove frame-src contiene già l'authDomain.
-const cspOk = async (page, name) => { const v = (await page.evaluate(() => window.__csp)).filter((x) => x !== 'frame-src http://127.0.0.1:9099'); check(v.length === 0, `${name}: nessuna violazione CSP${v.length ? ' (' + v.join('; ') + ')' : ''}`); };
+// Escluse solo:
+// - l'iframe dell'emulatore di Auth (getRedirectResult con UA mobile): esiste anche su main e non in produzione,
+//   dove frame-src contiene già l'authDomain;
+// - il ping di telemetria di Google (apis.google.com/js/gen_204) del caricatore gapi con UA mobile: compare a caso,
+//   è bloccato dalla CSP senza effetti e non porta dati dell'app (rendeva la CI rossa in modo casuale).
+const IGNORED_CSP = (x) => x === 'frame-src http://127.0.0.1:9099' || /^connect-src https:\/\/apis\.google\.com\/js\/gen_204/.test(x);
+const cspOk = async (page, name) => { const v = (await page.evaluate(() => window.__csp)).filter((x) => !IGNORED_CSP(x)); check(v.length === 0, `${name}: nessuna violazione CSP${v.length ? ' (' + v.join('; ') + ')' : ''}`); };
 
 console.log('E2E avviso "vecchia icona"\n');
 
