@@ -32,7 +32,12 @@ node tools/csp-hash.mjs --check  # verifica (prima di ogni commit)
 Poi incrementa `VERSION` in `sw.js`.
 
 ## Test delle regole (Firebase Emulator)
-Richiede Node 20+ e **Java 21** nel `PATH`.
+Richiede Node 20+ e **Java 21** nel `PATH` (gli emulatori Firebase sono in Java). Installazione, una volta:
+```sh
+winget install --id EclipseAdoptium.Temurin.21.JDK -e    # Windows (imposta PATH e JAVA_HOME)
+# macOS: brew install --cask temurin@21 · Linux: openjdk-21-jdk
+```
+Dopo l'installazione apri un nuovo terminale. Ogni suite controlla prima la versione (`tools/check-java.mjs`) e, se Java manca, dice cosa fare.
 ```sh
 cd tests/rules && npm install
 npm test               # firestore.rules (suite completa)

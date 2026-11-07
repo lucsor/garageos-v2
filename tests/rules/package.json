@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "preemu": "node ../../tools/check-java.mjs",
     "emu": "firebase emulators:exec --only firestore --project demo-garageos",
     "test": "npm run -s emu -- \"node --test --test-reporter=spec rules.test.mjs\"",
     "test:audit": "npm run -s emu -- \"node --test --test-reporter=spec audit-baseline.test.mjs\"",
