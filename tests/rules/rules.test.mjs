@@ -4,10 +4,10 @@
 // flusso di invito (invites/{token}). I*/M* sono i casi aggiunti per inviti e membri.
 import { test, describe, before, after, beforeEach } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where,
+  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, collectionGroup, query, where,
   arrayUnion, arrayRemove, deleteField, serverTimestamp, writeBatch, Timestamp,
 } from 'firebase/firestore';
 
@@ -356,5 +356,89 @@ describe(`Regole: ${RULES}`, () => {
       assertFails(setDoc(doc(ctx(MEMBER), 'garages', GID, 'mechs', 'm1'), { vehicleId: 'mk1abc2def', type: "x');alert(1)//" })));
     test('V08 veicolo con campo sconosciuto', () =>
       assertFails(setDoc(doc(ctx(MEMBER), 'garages', GID, 'vehicles', 'unk'), { plate: 'A', model: 'B', isAdmin: true })));
+  });
+
+  describe('PROMEMORIA PUSH (pushTokens, preferenze, registro)', () => {
+    const TOKEN = 'fcm:APA91b-' + 'x'.repeat(140);
+    const sha = (s) => createHash('sha256').update(s).digest('hex');
+    const tref = (db, uid, token = TOKEN, id = sha(token)) => doc(db, 'users', uid, 'pushTokens', id);
+    const tok = (extra = {}) => ({ token: TOKEN, platform: 'android', createdAt: serverTimestamp(), lastSeenAt: serverTimestamp(), appVersion: '2.5.0', ...extra });
+    const seedTok = (uid) => env.withSecurityRulesDisabled((c) => setDoc(tref(c.firestore(), uid), {
+      token: TOKEN, platform: 'ios', createdAt: Timestamp.fromMillis(Date.now() - DAY), lastSeenAt: Timestamp.fromMillis(Date.now() - DAY),
+    }));
+
+    test('PU01 utente registra, legge, elenca, aggiorna e cancella il PROPRIO token', async () => {
+      const db = ctx(MEMBER);
+      await assertSucceeds(setDoc(tref(db, MEMBER), tok()));
+      await assertSucceeds(getDoc(tref(db, MEMBER)));
+      await assertSucceeds(getDocs(collection(db, 'users', MEMBER, 'pushTokens')));
+      await assertSucceeds(updateDoc(tref(db, MEMBER), { lastSeenAt: serverTimestamp(), appVersion: '2.5.1' }));
+      await assertSucceeds(deleteDoc(tref(db, MEMBER)));
+    });
+    test('PU02 nessuno legge o tocca i token altrui (nemmeno il proprietario del garage)', async () => {
+      await seedTok(MEMBER);
+      for (const who of [OWNER, INVITEE, STRANGER]) {
+        const db = ctx(who);
+        await assertFails(getDoc(tref(db, MEMBER)));
+        await assertFails(getDocs(collection(db, 'users', MEMBER, 'pushTokens')));
+        await assertFails(deleteDoc(tref(db, MEMBER)));
+        await assertFails(setDoc(tref(db, MEMBER, 'other-token'), tok({ token: 'other-token' })));
+      }
+      await assertFails(getDoc(tref(anon(), MEMBER)));
+    });
+    test('PU03 query collectionGroup su tutti i token: negata', async () => {
+      await seedTok(MEMBER);
+      await assertFails(getDocs(collectionGroup(ctx(MEMBER), 'pushTokens')));
+      await assertFails(getDocs(query(collectionGroup(ctx(OWNER), 'pushTokens'), where('platform', '==', 'ios'))));
+    });
+    test('PU04 ID = SHA-256 del token, campi e tipi validati', async () => {
+      const db = ctx(MEMBER);
+      await assertFails(setDoc(doc(db, 'users', MEMBER, 'pushTokens', 'a'.repeat(64)), tok()));         // ID non corrispondente
+      await assertFails(setDoc(doc(db, 'users', MEMBER, 'pushTokens', 'qualsiasi'), tok()));
+      for (const bad of [{ platform: 'windows95' }, { token: '' }, { token: 'x'.repeat(4097) }, { appVersion: 'x'.repeat(21) }, { extra: 1 }]) {
+        const t = bad.token ?? TOKEN;
+        await assertFails(setDoc(tref(db, MEMBER, t, sha(t)), tok(bad)));
+      }
+    });
+    test('PU05 timestamp del server obbligatori; token e createdAt immutabili', async () => {
+      const db = ctx(MEMBER);
+      await assertFails(setDoc(tref(db, MEMBER), tok({ createdAt: Timestamp.fromMillis(0) })));
+      await assertFails(setDoc(tref(db, MEMBER), tok({ lastSeenAt: Timestamp.fromMillis(0) })));
+      await seedTok(MEMBER);
+      await assertFails(updateDoc(tref(db, MEMBER), { appVersion: '9' }));                             // senza lastSeenAt del server
+      await assertFails(updateDoc(tref(db, MEMBER), { token: 'altro', lastSeenAt: serverTimestamp() }));
+      await assertFails(updateDoc(tref(db, MEMBER), { createdAt: serverTimestamp(), lastSeenAt: serverTimestamp() }));
+    });
+    test('PU06 preferenze valide nel proprio users/{uid}', async () => {
+      const db = ctx(MEMBER);
+      await assertSucceeds(setDoc(doc(db, 'users', MEMBER), { push: { enabled: true, days: [30, 7, 1], details: true } }, { merge: true }));
+      await assertSucceeds(setDoc(doc(db, 'users', MEMBER), { push: { enabled: false } }, { merge: true }));
+      await assertSucceeds(setDoc(doc(db, 'users', MEMBER), { push: { enabled: true, days: [0], details: false } }, { merge: true }));
+    });
+    test('PU07 preferenze non valide respinte', async () => {
+      const db = ctx(MEMBER);
+      const bad = [
+        { enabled: 'sì' }, { details: 1 }, { days: [] }, { days: [30, 7, 1, 2, 3, 5] }, { days: [8] }, { days: [-1] },
+        { days: ['30'] }, { days: 30 }, { evil: true },
+      ];
+      for (const b of bad) await assertFails(setDoc(doc(db, 'users', MEMBER), { push: b }, { merge: true }));
+      await assertFails(setDoc(doc(db, 'users', MEMBER), { push: 'on' }, { merge: true }));
+      await assertFails(setDoc(doc(ctx(OWNER), 'users', MEMBER), { push: { enabled: true } }, { merge: true }));
+    });
+    test('PU08 registro degli invii e heartbeat: nessuna scrittura dai client; heartbeat leggibile', async () => {
+      await env.withSecurityRulesDisabled(async (c) => {
+        await setDoc(doc(c.firestore(), 'pushLog', 'x'), { at: Timestamp.now() });
+        await setDoc(doc(c.firestore(), 'pushStatus', 'heartbeat'), { lastRunAt: Timestamp.now(), mode: 'dry-run' });
+      });
+      const db = ctx(MEMBER);
+      await assertFails(getDoc(doc(db, 'pushLog', 'x')));
+      await assertFails(getDocs(collection(db, 'pushLog')));
+      await assertFails(setDoc(doc(db, 'pushLog', 'y'), { at: serverTimestamp() }));
+      await assertFails(deleteDoc(doc(db, 'pushLog', 'x')));
+      await assertSucceeds(getDoc(doc(db, 'pushStatus', 'heartbeat')));
+      await assertFails(getDoc(doc(anon(), 'pushStatus', 'heartbeat')));
+      await assertFails(setDoc(doc(db, 'pushStatus', 'heartbeat'), { lastRunAt: serverTimestamp() }));
+      await assertFails(getDocs(collection(db, 'pushStatus')));
+    });
   });
 });

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <!-- CSP: nessuno script inline (tutto in js/*.js): script-src 'self', niente hash da mantenere. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://fcmregistrations.googleapis.com https://firebaseinstallations.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -20,6 +20,16 @@
 
 <!-- UPDATE BANNER -->
 <div id="update-banner" data-action="apply-update">🔄 Nuova versione — tocca per aggiornare</div>
+
+<!-- AVVISO "VECCHIA ICONA" (arrivo dal redirect della v1 con ?from=v1): js/legacy-banner.js -->
+<div id="legacy-banner" role="region" aria-label="Vecchia icona" hidden>
+  <p class="lb-text">Stai usando la vecchia icona. Installa la nuova app e cancella quella vecchia dalla schermata Home.</p>
+  <p class="lb-help" id="legacy-help" aria-live="polite" hidden></p>
+  <div class="lb-actions">
+    <button type="button" class="btn btn-primary btn-sm" id="legacy-install">Installa</button>
+    <button type="button" class="btn btn-secondary btn-sm" id="legacy-dismiss">Ho capito</button>
+  </div>
+</div>
 
 <!-- LOGIN -->
 <div id="login-screen">
@@ -53,7 +63,7 @@
           <div class="user-menu-email" id="menu-user-email">—</div>
         </div>
         <div class="user-menu-item" data-action="tab" data-tab="famiglia"><span class="emoji">👨‍👩‍👧</span> Gestione Famiglia</div>
-        <div class="user-menu-item" data-action="enable-notif"><span class="emoji">🔔</span> Attiva notifiche</div>
+        <div class="user-menu-item" data-action="open-push"><span class="emoji">🔔</span> Promemoria</div>
         <div class="user-menu-item danger" data-action="sign-out"><span class="emoji">🚪</span> Esci</div>
       </div>
     </div>
@@ -92,6 +102,10 @@
         <button class="btn btn-secondary btn-sm" data-action="ics-all" title="Scarica un file .ics con tutte le scadenze future e i promemoria">📅 Calendario</button>
       </div>
       <p class="cal-hint" id="cal-android-note"></p>
+      <p class="push-ios-hint" id="push-ios-hint" hidden>
+        <span data-action="open-push">📲 Su iPhone i promemoria arrivano solo se GarageOS è sulla schermata Home. <u>Come si fa</u></span>
+        <button class="icon-btn" data-action="push-ios-dismiss" aria-label="Nascondi">✕</button>
+      </p>
       <div class="scadenze-list" id="scadenze-list"></div>
     </div>
 
@@ -403,6 +417,39 @@
   </div>
 </div>
 
+<!-- MODAL: PROMEMORIA PUSH -->
+<div class="modal-overlay" id="push-modal">
+  <div class="modal" style="max-width:420px" role="dialog" aria-modal="true" aria-labelledby="push-modal-title">
+    <div class="modal-title" id="push-modal-title">🔔 Promemoria delle scadenze</div>
+    <div class="push-box" id="push-ios" hidden>
+      <b>Su iPhone serve un passaggio in più</b>
+      <ol>
+        <li>Apri GarageOS in <b>Safari</b>.</li>
+        <li>Tocca <b>Condividi</b> (il quadrato con la freccia in su).</li>
+        <li>Scegli <b>Aggiungi alla schermata Home</b> → <b>Aggiungi</b>.</li>
+        <li>Apri GarageOS <b>dall'icona</b> sulla Home e torna qui: potrai attivare i promemoria.</li>
+      </ol>
+      <span class="cal-hint">Serve iOS 16.4 o successivo. Ogni dispositivo si attiva a parte.</span>
+    </div>
+    <p class="cal-hint" id="push-unavailable"></p>
+    <div id="push-device">
+      <p class="push-status" id="push-status"></p>
+      <button class="btn btn-primary" id="push-toggle" data-action="push-toggle" style="width:100%">🔔 Attiva su questo dispositivo</button>
+    </div>
+    <div id="push-prefs">
+      <div class="form-label" style="margin-top:18px">Avvisami (valido per tutti i tuoi dispositivi)</div>
+      <div class="push-days" id="push-days"></div>
+      <label class="push-day" style="margin-top:10px"><input type="checkbox" id="push-details"> Mostra targa e tipo di scadenza nella notifica</label>
+      <p class="cal-hint">Gli importi non compaiono mai nelle notifiche. Le notifiche arrivano una volta al giorno, la mattina.</p>
+    </div>
+    <p class="cal-hint" id="push-heartbeat"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-action="close-modal" data-modal="push-modal">Chiudi</button>
+      <button class="btn btn-primary" id="push-save" data-action="push-save">Salva</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: CONFERMA -->
 <div class="modal-overlay" id="confirm-modal">
   <div class="modal confirm-box" style="max-width:380px">
@@ -417,6 +464,7 @@
 <link rel="modulepreload" href="js/utils.js">
 <link rel="modulepreload" href="js/csv.js">
 <link rel="modulepreload" href="js/costs.js">
+<link rel="modulepreload" href="js/legacy-banner.js">
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
