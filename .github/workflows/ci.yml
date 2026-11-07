@@ -32,7 +32,7 @@ jobs:
       - name: PRECACHE del service worker completo (css/ e js/)
         run: node tools/check-precache.mjs
       - name: Unit test dei moduli puri
-        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs tests/unit/reminders.test.mjs tests/unit/workflows.test.mjs
+        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs tests/unit/reminders.test.mjs tests/unit/workflows.test.mjs tests/unit/legacy-banner.test.mjs
       - name: VERSION del service worker incrementata (solo PR che toccano file dell'app)
         if: github.event_name == 'pull_request'
         run: |
@@ -113,6 +113,8 @@ jobs:
         run: node tests/e2e/push.e2e.mjs
       - name: Promemoria push (script di invio, FCM simulato)
         run: node tests/e2e/reminders.emu.mjs
+      - name: Avviso "vecchia icona" (arrivo dalla v1)
+        run: node tests/e2e/legacy-banner.e2e.mjs
       - name: Service worker e offline
         run: node tests/e2e/pwa.e2e.mjs
       - name: Aggiornamento dalla versione in produzione

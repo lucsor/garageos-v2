@@ -15,6 +15,7 @@ import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechTyp
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
 import { createPush, DAY_OPTIONS } from './push.js';
+import { initLegacyBanner } from './legacy-banner.js';
 import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
 
 // ===== FIREBASE CONFIG =====
@@ -48,6 +49,9 @@ if (USE_EMULATOR) {
 }
 // Promemoria push (FCM): vedi js/push.js
 const push = createPush({ app, db, getUser: () => currentUser, emulator: USE_EMULATOR });
+
+// Arrivo dalla vecchia icona della v1 (?from=v1): avviso + pulizia dell'URL, prima degli altri parametri
+try { initLegacyBanner(); } catch(e) { console.warn('[GarageOS] avviso vecchia icona:', e); }
 
 // ===== STATE =====
 let currentUser = null;

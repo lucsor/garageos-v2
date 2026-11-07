@@ -21,6 +21,16 @@
 <!-- UPDATE BANNER -->
 <div id="update-banner" data-action="apply-update">🔄 Nuova versione — tocca per aggiornare</div>
 
+<!-- AVVISO "VECCHIA ICONA" (arrivo dal redirect della v1 con ?from=v1): js/legacy-banner.js -->
+<div id="legacy-banner" role="region" aria-label="Vecchia icona" hidden>
+  <p class="lb-text">Stai usando la vecchia icona. Installa la nuova app e cancella quella vecchia dalla schermata Home.</p>
+  <p class="lb-help" id="legacy-help" aria-live="polite" hidden></p>
+  <div class="lb-actions">
+    <button type="button" class="btn btn-primary btn-sm" id="legacy-install">Installa</button>
+    <button type="button" class="btn btn-secondary btn-sm" id="legacy-dismiss">Ho capito</button>
+  </div>
+</div>
+
 <!-- LOGIN -->
 <div id="login-screen">
   <div class="login-box">
@@ -454,6 +464,7 @@
 <link rel="modulepreload" href="js/utils.js">
 <link rel="modulepreload" href="js/csv.js">
 <link rel="modulepreload" href="js/costs.js">
+<link rel="modulepreload" href="js/legacy-banner.js">
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
