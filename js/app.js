@@ -14,6 +14,7 @@ import {
 import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechType, formatDate, formatCurrency, addYears } from './utils.js';
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
+import { createPush, DAY_OPTIONS } from './push.js';
 import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
 
 // ===== FIREBASE CONFIG =====
@@ -45,6 +46,8 @@ if (USE_EMULATOR) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   console.warn('[GarageOS] Emulatori locali attivi');
 }
+// Promemoria push (FCM): vedi js/push.js
+const push = createPush({ app, db, getUser: () => currentUser, emulator: USE_EMULATOR });
 
 // ===== STATE =====
 let currentUser = null;
@@ -197,6 +200,8 @@ async function signOutUser() {
     new Promise(r => setTimeout(() => r(false), 4000)),
   ]);
   if (!flushed && !await showConfirm('Ci sono modifiche non ancora sincronizzate (sei offline?). Se esci adesso andranno perse. Uscire comunque?')) return;
+  // il dispositivo non deve più ricevere i promemoria di questo account
+  await Promise.race([push.disableHere().catch(() => {}), new Promise(r => setTimeout(r, 4000))]);
   await fbSignOut(auth);
   resetSession();
   // La cache locale (IndexedDB) e la cache delle notifiche contengono i dati del garage:
@@ -270,6 +275,8 @@ async function _resolveOnce() {
     if (currentUser !== user) return;   // utente cambiato nel frattempo
     _retryDelay = 2000;
     startListeners();
+    push.refresh().catch(e => console.warn('promemoria:', e.code || e.message));
+    if (location.hash === '#scadenze') { switchTab('scadenze'); history.replaceState(null, '', location.pathname + location.search); }
   } catch(e) {
     if (!(e instanceof TransientError)) throw e;
     console.warn('Risoluzione garage rinviata (errore transitorio):', e.message);
@@ -1243,6 +1250,8 @@ function renderScadenze() {
     if (v.assicurazione) items.push({ vehicle: v, kind: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
   });
   document.getElementById('cal-android-note').textContent = DEVICE === 'android' ? ANDROID_ALARM_NOTE : '';
+  let iosHintOff = false; try { iosHintOff = localStorage.getItem('garageos_ios_hint') === '1'; } catch {}
+  document.getElementById('push-ios-hint').hidden = !(push.supportState() === 'ios-install' && !iosHintOff);
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
   items.sort((a, b) => new Date(a.date) - new Date(b.date));
   const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
@@ -1268,6 +1277,77 @@ function renderScadenze() {
       </div>
     </div>`;
   }).join('');
+}
+
+// ===== PROMEMORIA PUSH (finestra) =====
+const PUSH_UNAVAILABLE = {
+  'ios-old': 'Su questo iPhone le notifiche delle app web richiedono iOS 16.4 o successivo. Puoi usare 📅 Calendario nella scheda Scadenze: i promemoria li gestisce il telefono.',
+  'unsupported': 'Questo browser non supporta le notifiche push. Puoi usare 📅 Calendario nella scheda Scadenze.',
+  'unconfigured': 'I promemoria push non sono ancora attivi per GarageOS: arriveranno a breve.',
+};
+const dayLabel = d => d === 0 ? 'Il giorno stesso' : d === 1 ? '1 giorno prima' : `${d} giorni prima`;
+async function openPushModal() {
+  const state = push.supportState();
+  const ok = state === 'ok';
+  document.getElementById('push-ios').hidden = state !== 'ios-install';
+  document.getElementById('push-unavailable').textContent = PUSH_UNAVAILABLE[state] || '';
+  document.getElementById('push-device').hidden = !ok;
+  document.getElementById('push-prefs').hidden = !ok;
+  document.getElementById('push-save').hidden = !ok;
+  renderPushDevice();
+  openModal('push-modal');
+  if (!ok) return;
+  try {
+    const prefs = await push.loadPrefs();
+    document.getElementById('push-days').innerHTML = DAY_OPTIONS.map(d =>
+      `<label class="push-day"><input type="checkbox" value="${d}" ${prefs.days.includes(d) ? 'checked' : ''}> ${dayLabel(d)}</label>`).join('');
+    document.getElementById('push-details').checked = prefs.details;
+  } catch (e) { _showToast('Preferenze non disponibili: ' + (e.code || e.message), 'yellow'); }
+  const hb = await push.heartbeat();
+  const el = document.getElementById('push-heartbeat');
+  el.textContent = '';
+  if (hb?.lastRunAt?.toDate) {
+    const when = hb.lastRunAt.toDate();
+    const days = Math.floor((Date.now() - when.getTime()) / 86400000);
+    el.textContent = days >= 3 && isOwner
+      ? `⚠️ L'invio dei promemoria non gira da ${days} giorni: controlla il workflow "Promemoria scadenze" su GitHub.`
+      : `Ultimo controllo dei promemoria: ${when.toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+  }
+}
+function renderPushDevice() {
+  const active = push.isActiveHere();
+  const denied = globalThis.Notification?.permission === 'denied';
+  document.getElementById('push-status').textContent = active
+    ? '✅ Promemoria attivi su questo dispositivo.'
+    : denied ? '🚫 Le notifiche sono bloccate per GarageOS nelle impostazioni del browser o del telefono: sbloccale lì, poi riprova.'
+    : 'Promemoria non attivi su questo dispositivo.';
+  const b = document.getElementById('push-toggle');
+  b.textContent = active ? 'Disattiva su questo dispositivo' : '🔔 Attiva su questo dispositivo';
+  b.className = active ? 'btn btn-secondary' : 'btn btn-primary';
+  b.disabled = denied && !active;
+}
+async function togglePushHere() {
+  const b = document.getElementById('push-toggle');
+  b.disabled = true;
+  try {
+    if (push.isActiveHere()) { await push.disableHere(); _showToast('Promemoria disattivati su questo dispositivo'); }
+    else {
+      const r = await push.enableHere();   // il permesso viene chiesto qui, dopo il tocco
+      _showToast(r === 'enabled' ? '🔔 Promemoria attivi su questo dispositivo' : 'Permesso per le notifiche negato', r === 'enabled' ? 'green' : 'yellow');
+    }
+  } catch (e) { _showToast('Promemoria: ' + (e.code || e.message), 'red'); }
+  b.disabled = false;
+  renderPushDevice();
+}
+async function savePushPrefs() {
+  const days = [...document.querySelectorAll('#push-days input:checked')].map(i => Number(i.value));
+  if (!days.length) { _showToast('Scegli almeno un giorno di preavviso', 'yellow'); return; }
+  if (days.length > 5) { _showToast('Al massimo 5 promemoria per scadenza', 'yellow'); return; }
+  try {
+    await written(push.savePrefs({ days, details: document.getElementById('push-details').checked }));
+    closeModal('push-modal');
+    _showToast('Preferenze dei promemoria salvate');
+  } catch (e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
 }
 
 // ===== CALENDARIO (.ics) =====
@@ -1578,6 +1658,10 @@ const ACTIONS = {
   'garage-name':      () => openGarageName(),
   'tab':              d => { toggleUserMenu(false); switchTab(d.tab, d.vehicle); },
   'enable-notif':     () => { toggleUserMenu(false); enableNotifications(); },
+  'open-push':        () => { toggleUserMenu(false); openPushModal(); },
+  'push-toggle':      () => togglePushHere(),
+  'push-save':        () => savePushPrefs(),
+  'push-ios-dismiss': () => { try { localStorage.setItem('garageos_ios_hint', '1'); } catch {} renderScadenze(); },
   'subtab':           d => switchSubTab(d.sub),
   'fab':              () => fabAction(),
   'open-modal':       d => openModal(d.modal),
@@ -1672,6 +1756,10 @@ if ('serviceWorker' in navigator) {
   // aggiornamento = da un controller a un altro (reload), anche se nella stessa sessione c'era stata l'installazione.
   let _controller = navigator.serviceWorker.controller;
   let _refreshing = false;
+  // click su una notifica di promemoria con l'app già aperta → scheda Scadenze
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'OPEN_TAB' && e.data.tab === 'scadenze' && currentUser) switchTab('scadenze');
+  });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     const hadController = !!_controller;
     _controller = navigator.serviceWorker.controller;
