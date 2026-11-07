@@ -50,7 +50,10 @@ const startServer = () => new Promise((res) => {
   server = spawn('python', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: site, stdio: 'ignore' });
   setTimeout(res, 1200);
 });
-const stopServer = () => new Promise((res) => { if (!server || server.exitCode !== null) return res(); server.on('exit', res); server.kill(); });
+const stopServer = () => new Promise((res) => {
+  if (!server || server.exitCode !== null || server.signalCode !== null || server.killed) return res();
+  server.on('exit', res); server.kill();
+});
 
 await fetch(`http://127.0.0.1:8080/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
 await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${PROJECT}/accounts`, { method: 'DELETE' });
