@@ -8,7 +8,8 @@
     "test:audit": "npm run -s emu -- \"node --test --test-reporter=spec audit-baseline.test.mjs\"",
     "test:A": "cross-env RULES=baseline/A-permissive.rules npm run -s test:audit",
     "test:B": "cross-env RULES=baseline/B-strict-v2-compatible.rules npm run -s test:audit",
-    "test:published": "cross-env RULES=baseline/published.rules npm run -s test:audit"
+    "test:published": "cross-env RULES=baseline/published.rules npm run -s test:audit",
+    "test:prod-data": "npm run -s emu -- \"node --test --test-reporter=spec prod-data.test.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
