@@ -14,6 +14,7 @@ import {
 import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechType, formatDate, formatCurrency, addYears } from './utils.js';
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
+import { deadlineEvents, deadlineEvent, buildICS, icsFilename, downloadICS, localToday } from './ics.js';
 
 // ===== FIREBASE CONFIG =====
 const firebaseConfig = {
@@ -1259,10 +1260,32 @@ function renderScadenze() {
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
-        ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
+        <div style="display:flex;gap:6px">
+          ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="ics-one" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} ${esc(item.vehicle.plate)} al calendario">📅</button>` : ''}
+          ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
+        </div>
       </div>
     </div>`;
   }).join('');
+}
+
+// ===== CALENDARIO (.ics) =====
+// Tutte le scadenze future (rispettando il filtro veicolo), oppure una sola: file .ics con promemoria
+// a 7 giorni e al giorno prima, da aprire con l'app Calendario (iPhone, Android, Google, Outlook).
+function exportDeadlinesICS() {
+  const vid = document.getElementById('scad-filter-vehicle').value;
+  const events = deadlineEvents(data.vehicles, { vehicleId: vid });
+  if (!events.length) { _showToast('Nessuna scadenza futura da aggiungere al calendario', 'yellow'); return; }
+  const v = vid && data.vehicles.find(x => x.id === vid);
+  downloadICS(icsFilename('scadenze', v ? v.plate : '', localToday()), buildICS(events));
+  _showToast(`📅 ${events.length} ${events.length === 1 ? 'scadenza' : 'scadenze'}: apri il file per aggiungerle al calendario`);
+}
+function exportOneDeadlineICS(vid, kind) {
+  const v = data.vehicles.find(x => x.id === vid);
+  if (!v || !v[kind]) return;
+  const e = deadlineEvent(v, kind);
+  downloadICS(icsFilename(kind, v.plate), buildICS([e], { calName: e.summary }));
+  _showToast('📅 Apri il file per aggiungere la scadenza al calendario');
 }
 
 // ===== RENDER: PNEUMATICI =====
@@ -1530,6 +1553,8 @@ const ACTIONS = {
   'close-modal':      d => closeModal(d.modal),
   'csv-mechs':        () => exportMechsCSV(),
   'csv-tires':        () => exportTiresCSV(),
+  'ics-all':          () => exportDeadlinesICS(),
+  'ics-one':          d => exportOneDeadlineICS(d.id, d.kind),
   'send-invite':      () => sendInvite(),
   'copy-link':        () => copyShareLink(),
   'revoke-invite':    d => revokeInvite(d.id),
