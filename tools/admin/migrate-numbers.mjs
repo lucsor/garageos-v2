@@ -4,11 +4,14 @@
 //   node migrate-numbers.mjs --target production [--apply]      ← NON eseguire prima del task D3 (vedi docs/PIANO.md):
 //      il client deve prima saper LEGGERE i numeri, altrimenti ogni modifica li riscriverebbe come stringa.
 // Regole di conversione (conservative, nessuna "interpretazione"):
-//  - stringa strettamente numerica ("50000", "12.5", "12,5")  → number
+//  - intero senza separatori ("50000", "-3")                    → number
+//  - decimale con 1-2 cifre dopo punto o virgola ("12.5", "12,50") → number
 //  - stringa vuota o solo spazi                                 → null   (le regole accettano null; il client lo tratta come vuoto)
 //  - già number / null / campo assente                          → invariato
-//  - tutto il resto ("1.500", "€ 120", "circa 100")             → NON toccato, elencato come "da sistemare a mano"
+//  - separatore seguito da 3 cifre ("1.500", "50.000", "1,250"): migliaia o decimali? → NON toccato, "da sistemare a mano"
+//  - tutto il resto ("€ 120", "circa 100", "1.234,56")          → NON toccato, "da sistemare a mano"
 // Scrive SOLO i campi convertiti (update), in batch da 400; idempotente.
+// Da eseguire con l'app ferma: l'update non ha precondizioni, una modifica fatta tra lettura e scrittura verrebbe sovrascritta.
 import { adminDb, PROJECT_ID, whoami } from './creds.mjs';
 
 const FIELDS = {
@@ -29,9 +32,9 @@ export function convert(v) {
   if (typeof v !== 'string') return { kind: 'tipo inatteso' };
   const t = v.trim();
   if (t === '') return { kind: 'vuoto→null', value: null };
-  if (/^-?\d+(\.\d+)?$/.test(t)) return { kind: 'convertibile', value: Number(t) };
-  if (/^-?\d+,\d+$/.test(t)) return { kind: 'convertibile', value: Number(t.replace(',', '.')) };
-  return { kind: 'ambiguo' };
+  if (/^-?\d+$/.test(t)) return { kind: 'convertibile', value: Number(t) };
+  if (/^-?\d+[.,]\d{1,2}$/.test(t)) return { kind: 'convertibile', value: Number(t.replace(',', '.')) };
+  return { kind: 'ambiguo' };   // compresi "1.500" / "50.000" (in italiano quasi sempre migliaia, ma non lo decidiamo noi)
 }
 
 const db = adminDb();
