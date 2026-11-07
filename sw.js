@@ -1,6 +1,6 @@
 // ===== GarageOS Service Worker =====
 // Aggiorna questo numero ogni volta che carichi una nuova versione! (il pre-commit hook lo controlla)
-const VERSION = '2.3.0';
+const VERSION = '2.4.0';
 const CACHE_PREFIX = 'garageos-v';            // solo le cache con questo prefisso appartengono a questo SW
 const CACHE_NAME = CACHE_PREFIX + VERSION;
 const NOTIF_CACHE = 'garageos-notif';         // snapshot scadenze per le notifiche: NON va mai cancellata
@@ -12,6 +12,12 @@ const PRECACHE = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  // moduli dell'app: la lista è verificata da tools/check-precache.mjs (pre-commit e CI)
+  './css/app.css',
+  './js/app.js',
+  './js/utils.js',
+  './js/csv.js',
+  './js/costs.js',
   // SDK Firebase (URL versionati e immutabili, CORS aperto): senza questi l'app offline resta bianca
   FIREBASE_SDK + 'firebase-app.js',
   FIREBASE_SDK + 'firebase-firestore.js',
@@ -62,9 +68,13 @@ self.addEventListener('fetch', event => {
   // Tutto il resto fuori origine (Firestore, Auth, ...): lascia al browser / all'SDK (che ha la sua cache offline)
   if (url.origin !== self.location.origin) return;
 
-  // Stessa origine: network-first, fallback cache (offline)
+  // Stessa origine: network-first, fallback cache (offline).
+  // cache: 'no-cache' = sempre una verifica col server (ETag → 304, quasi gratis): con l'app divisa in più
+  // moduli ES, la cache HTTP del browser (max-age=600 su GitHub Pages) potrebbe altrimenti servire per
+  // qualche minuto dopo un deploy un app.js nuovo con un utils.js vecchio → import rotto, pagina bianca.
   event.respondWith(
-    fetch(req)
+    // (le navigazioni no: una Request di tipo navigate non si può ricreare con opzioni)
+    (req.mode === 'navigate' ? fetch(req) : fetch(req, { cache: 'no-cache' }))
       .then(response => {
         // non salvare le varianti con query string (?invite=..., ?emulator) come pagine separate
         if (response.ok && !url.search) {

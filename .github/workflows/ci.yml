@@ -4,7 +4,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'feat/**']
   push:
     branches: [main]
   workflow_dispatch:
@@ -27,8 +27,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Hash CSP dello script inline
+      - name: CSP (hash degli script inline, o script-src 'self' senza inline)
         run: node tools/csp-hash.mjs --check
+      - name: PRECACHE del service worker completo (css/ e js/)
+        run: node tools/check-precache.mjs
+      - name: Unit test dei moduli puri
+        run: node --test tests/unit/modules.test.mjs
       - name: VERSION del service worker incrementata (solo PR che toccano file dell'app)
         if: github.event_name == 'pull_request'
         run: |
@@ -73,6 +77,8 @@ jobs:
     needs: static
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0          # upgrade.e2e confronta con la versione in produzione (main)
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -103,6 +109,8 @@ jobs:
           node tests/e2e/csp.e2e.mjs
       - name: Service worker e offline
         run: node tests/e2e/pwa.e2e.mjs
+      - name: Aggiornamento dalla versione in produzione
+        run: node tests/e2e/upgrade.e2e.mjs origin/main
       - name: Log degli emulatori
         if: failure()
         run: cat emulators.log

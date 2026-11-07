@@ -17,7 +17,14 @@ if staged | grep -qx 'index.html'; then
   rm -f "$tmp"
 fi
 
-if [ -z "$SKIP_SW_VERSION_CHECK" ] && staged | grep -qE '^(index\.html|sw\.js|manifest\.json|icon-.*\.png|favicon\.ico)$'; then
+if staged | grep -qE '^(sw\.js|css/.*|js/.*)$'; then
+  if ! node tools/check-precache.mjs; then
+    echo "  Aggiungi i file mancanti a PRECACHE in sw.js."
+    fail=1
+  fi
+fi
+
+if [ -z "$SKIP_SW_VERSION_CHECK" ] && staged | grep -qE '^(index\.html|sw\.js|manifest\.json|icon-.*\.png|favicon\.ico|css/.*|js/.*)$'; then
   new=$(git show :sw.js 2>/dev/null | grep -o "VERSION = '[^']*'")
   old=$(git show HEAD:sw.js 2>/dev/null | grep -o "VERSION = '[^']*'")
   if [ -n "$old" ] && [ "$new" = "$old" ]; then

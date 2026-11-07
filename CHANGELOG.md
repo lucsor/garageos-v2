@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.4.0] — in preparazione (branch `feat/v2.4-modules`)
+### Sviluppo
+- **Moduli ES senza build:** `index.html` (solo markup) + `css/app.css` + `js/app.js` e i moduli puri `js/utils.js`, `js/csv.js`, `js/costs.js`. Nessuna modifica alla logica. CSP senza script inline (`script-src 'self'`): niente più hash da aggiornare.
+- `tools/check-precache.mjs` (pre-commit e CI): ogni file in `css/` e `js/` deve essere nel precache del service worker.
+- Unit test in Node dei moduli puri, anche in CI. `tools/split-modules.py` rigenera la divisione da un `index.html` monolitico.
+
 ## [2.3.0] — 2026-11-07
 ### Correzioni
 - **Service worker:** all'aggiornamento non cancella più la cache delle notifiche (`garageos-notif`) né le cache di altre app sulla stessa origine. Alla prima installazione la pagina non si ricarica più da sola (prima poteva interrompere il login); il reload avviene solo per un aggiornamento richiesto.

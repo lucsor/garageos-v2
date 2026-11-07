@@ -20,6 +20,14 @@ if (html.includes('\r\n')) {
 const inline = [...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 const hashes = inline.map((code) => `'sha256-${createHash('sha256').update(code, 'utf8').digest('base64')}'`);
 
+// Nessuno script inline (app divisa in moduli): la CSP deve usare 'self' e NON contenere 'unsafe-inline' né hash
+if (inline.length === 0) {
+  const csp = (html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/) || [])[1] || '';
+  const scriptSrc = (csp.match(/script-src ([^;]*)/) || [])[1] || '';
+  const ok = /'self'/.test(scriptSrc) && !/unsafe-inline|sha256-/.test(scriptSrc);
+  console.log(ok ? "CSP OK (nessuno script inline, script-src 'self')" : `CSP NON valida senza script inline: script-src ${scriptSrc}`);
+  process.exit(ok ? 0 : 1);
+}
 const metaRe = /(<meta http-equiv="Content-Security-Policy" content="[^"]*?script-src )((?:'sha256-[^']+' ?)+)/;
 const m = html.match(metaRe);
 if (!m) { console.error('Meta CSP con script-src \'sha256-…\' non trovato.'); process.exit(1); }
