@@ -21,7 +21,9 @@ const APP = `http://127.0.0.1:${PORT}/`;
 const T = 60_000;
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const site = mkdtempSync(join(tmpdir(), 'garageos-site-'));
-for (const f of ['index.html', 'sw.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'favicon.ico']) cpSync(join(repo, f), join(site, f));
+for (const f of ['index.html', 'sw.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'favicon.ico', 'css', 'js']) {
+  cpSync(join(repo, f), join(site, f), { recursive: true });
+}
 const { adminDb } = await import('../../tools/admin/creds.mjs');
 const db = adminDb();
 const problems = [];
