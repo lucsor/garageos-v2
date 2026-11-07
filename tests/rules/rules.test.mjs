@@ -441,4 +441,88 @@ describe(`Regole: ${RULES}`, () => {
       await assertFails(getDocs(collection(db, 'pushStatus')));
     });
   });
+
+  describe('RIFORNIMENTI (refuels, v2.6)', () => {
+    const VID = 'mk1abc2def';
+    const rref = (db, id = 'r1') => doc(db, 'garages', GID, 'refuels', id);
+    const ok = (uid = MEMBER, extra = {}) => ({
+      vehicleId: VID, date: '2026-11-07', km: 45000, liters: 38.5, amount: 62.4, full: true, note: 'Q8',
+      addedBy: email(uid), createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const seedRefuel = () => env.withSecurityRulesDisabled((c) => setDoc(rref(c.firestore()), {
+      vehicleId: VID, date: '2026-11-01', km: 44000, liters: 40, amount: 70, full: true, note: '',
+      addedBy: email(OWNER), createdAt: Timestamp.fromMillis(Date.now() - DAY), updatedAt: Timestamp.fromMillis(Date.now() - DAY),
+    }));
+
+    test('RF01 proprietario e membro creano, leggono, modificano e cancellano', async () => {
+      await assertSucceeds(setDoc(rref(ctx(OWNER), 'a'), ok(OWNER)));
+      await assertSucceeds(setDoc(rref(ctx(MEMBER), 'b'), ok(MEMBER, { km: null, full: false, note: '' })));
+      await assertSucceeds(setDoc(rref(ctx(MEMBER), 'c'), (({ note, ...x }) => x)(ok(MEMBER))));   // note facoltativa
+      await assertSucceeds(getDocs(collection(ctx(MEMBER), 'garages', GID, 'refuels')));
+      await assertSucceeds(updateDoc(rref(ctx(MEMBER), 'a'), { liters: 40, amount: 70, updatedAt: serverTimestamp() }));
+      await assertSucceeds(deleteDoc(rref(ctx(OWNER), 'b')));
+    });
+    test('RF02 non membri e anonimi: niente lettura né scrittura', async () => {
+      await seedRefuel();
+      for (const db of [ctx(STRANGER), ctx(INVITEE), anon()]) {
+        await assertFails(getDoc(rref(db)));
+        await assertFails(getDocs(collection(db, 'garages', GID, 'refuels')));
+        await assertFails(setDoc(rref(db, 'x'), ok(STRANGER)));
+        await assertFails(updateDoc(rref(db), { amount: 1, updatedAt: serverTimestamp() }));
+        await assertFails(deleteDoc(rref(db)));
+      }
+    });
+    test('RF03 km, litri e importo come stringa: negati (create e update)', async () => {
+      const db = ctx(MEMBER);
+      for (const bad of [{ km: '45000' }, { liters: '38,5' }, { amount: '62.40' }, { full: 'true' }, { km: 4.5 }]) {
+        await assertFails(setDoc(rref(db, 'x'), ok(MEMBER, bad)));
+      }
+      await seedRefuel();
+      await assertFails(updateDoc(rref(db), { km: '45000', updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(rref(db), { amount: '70', updatedAt: serverTimestamp() }));
+    });
+    test('RF04 valori fuori misura negati', async () => {
+      const db = ctx(MEMBER);
+      for (const bad of [{ km: -1 }, { km: 10_000_000 }, { liters: 0 }, { liters: -5 }, { liters: 501 }, { amount: -0.01 },
+        { amount: 10_001 }, { date: '07/11/2026' }, { date: '' }, { note: 'x'.repeat(201) }, { vehicleId: "x');alert(1)//" }]) {
+        await assertFails(setDoc(rref(db, 'x'), ok(MEMBER, bad)));
+      }
+    });
+    test('RF05 chiavi extra o mancanti negate', async () => {
+      const db = ctx(MEMBER);
+      await assertFails(setDoc(rref(db, 'x'), ok(MEMBER, { station: 'Q8' })));
+      await assertFails(setDoc(rref(db, 'x'), (({ full, ...x }) => x)(ok(MEMBER))));
+      await assertFails(setDoc(rref(db, 'x'), (({ km, ...x }) => x)(ok(MEMBER))));
+      await seedRefuel();
+      await assertFails(updateDoc(rref(db), { isAdmin: true, updatedAt: serverTimestamp() }));
+    });
+    test('RF06 addedBy falsificato negato in create', async () => {
+      await assertFails(setDoc(rref(ctx(MEMBER), 'x'), ok(MEMBER, { addedBy: email(OWNER) })));
+      await assertFails(setDoc(rref(ctx(MEMBER), 'x'), ok(MEMBER, { addedBy: '' })));
+    });
+    test('RF07 update che cambia addedBy o createdAt negato', async () => {
+      await seedRefuel();
+      const db = ctx(MEMBER);
+      await assertFails(updateDoc(rref(db), { addedBy: email(MEMBER), updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(rref(db), { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    });
+    test('RF08 timestamp del server obbligatori', async () => {
+      const db = ctx(MEMBER);
+      await assertFails(setDoc(rref(db, 'x'), ok(MEMBER, { createdAt: Timestamp.fromMillis(Date.now()) })));
+      await assertFails(setDoc(rref(db, 'x'), ok(MEMBER, { updatedAt: Timestamp.fromMillis(0) })));
+      await assertFails(setDoc(rref(db, 'x'), ok(MEMBER, { createdAt: '2026-11-07T10:00:00.000Z' })));
+      await seedRefuel();
+      await assertFails(updateDoc(rref(db), { amount: 71 }));                                         // senza updatedAt
+      await assertFails(updateDoc(rref(db), { amount: 71, updatedAt: Timestamp.fromMillis(Date.now()) }));
+    });
+    test('RF09 veicolo inesistente negato (create e cambio veicolo)', async () => {
+      await assertFails(setDoc(rref(ctx(MEMBER), 'x'), ok(MEMBER, { vehicleId: 'nonesiste' })));
+      await seedRefuel();
+      await assertFails(updateDoc(rref(ctx(MEMBER)), { vehicleId: 'nonesiste', updatedAt: serverTimestamp() }));
+    });
+    test('RF10 un garage non scrive nei rifornimenti di un altro', async () => {
+      await assertFails(setDoc(doc(ctx(OTHER_OWNER), 'garages', GID, 'refuels', 'x'), ok(OTHER_OWNER)));
+      await assertFails(getDocs(collection(ctx(OTHER_OWNER), 'garages', GID, 'refuels')));
+    });
+  });
 });

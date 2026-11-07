@@ -9,6 +9,7 @@ rules_version = '2';
 //     memberInfo: { [uid]: {email,name,photo,joinedAt,inviteId} }  profilo dei membri (chiavi ⊆ memberUids)
 //     members: [...]                    LEGACY v1/v2.1 (solo lettura per i membri, il proprietario può ripulirlo)
 //     vehicles/{id}, tires/{id}, mechs/{id}
+//     refuels/{id}                      rifornimenti (v2.6): numeri veri, timestamp del server, addedBy immutabile
 //   invites/{token}                     token = 256 bit casuali in esadecimale, scadenza ≤ 7 giorni, uso singolo
 //   users/{uid}.push                    preferenze promemoria {enabled, days[], details}
 //   users/{uid}/pushTokens/{sha256}     token FCM dei dispositivi: SOLO il proprietario li vede
@@ -145,6 +146,24 @@ service cloud.firestore {
           && touched().hasOnly(mechKeys())
           && mechOk(request.resource.data, request.resource.data.diff(resource.data).affectedKeys());
       }
+      // Rifornimenti (v2.6): collezione nuova, nessun dato legacy → validazione COMPLETA anche in update.
+      // km/litri/importo solo numeri (mai stringhe), timestamp del server, addedBy = chi crea e immutabile.
+      match /refuels/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && refuelOk(request.resource.data)
+          && vehicleExists(gid, request.resource.data.vehicleId)
+          && request.resource.data.addedBy == myEmail()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isMember(gid)
+          && refuelOk(request.resource.data)
+          && (request.resource.data.vehicleId == resource.data.vehicleId
+              || vehicleExists(gid, request.resource.data.vehicleId))
+          && request.resource.data.addedBy == resource.data.addedBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+      }
       // qualunque altra sottocollezione: negata (default)
     }
 
@@ -266,6 +285,27 @@ service cloud.firestore {
         && !(request.auth.uid in get(gPath(before.garageId)).data.get('memberUids', []))
         // si consuma solo entrando davvero nel garage nello stesso batch
         && request.auth.uid in getAfter(gPath(before.garageId)).data.get('memberUids', []);
+    }
+
+    // ───────── rifornimenti ─────────
+    // limiti: devono coincidere con LIMITS in js/fuel.js (verificato da tests/unit/fuel.test.mjs)
+    function refuelOk(d) {
+      return d.keys().hasOnly(['vehicleId', 'date', 'km', 'liters', 'amount', 'full', 'note',
+                               'addedBy', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['vehicleId', 'date', 'km', 'liters', 'amount', 'full',
+                            'addedBy', 'createdAt', 'updatedAt'])
+        && validId(d.vehicleId)
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (d.km == null || (d.km is int && d.km >= 0 && d.km <= 9999999))
+        && d.liters is number && d.liters > 0 && d.liters <= 500
+        && d.amount is number && d.amount >= 0 && d.amount <= 10000
+        && d.full is bool
+        && optStr(d, 'note', 200)
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && str(d.addedBy, 254);
+    }
+    function vehicleExists(gid, vid) {
+      return exists(/databases/$(database)/documents/garages/$(gid)/vehicles/$(vid));
     }
 
     // ───────── validazione documenti ─────────

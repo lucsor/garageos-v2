@@ -140,6 +140,37 @@
       </div>
     </div>
 
+    <!-- SPESE: rifornimenti, consumi e spese annue (v2.6) -->
+    <div class="section" id="section-spese">
+      <div class="seg">
+        <button class="seg-btn active" id="seg-rifornimenti" data-action="spese-sub" data-sub="rifornimenti">⛽ Rifornimenti</button>
+        <button class="seg-btn" id="seg-annue" data-action="spese-sub" data-sub="annue">📊 Spese annue</button>
+      </div>
+      <p class="cal-hint" id="fuel-unavailable" role="status" hidden></p>
+
+      <div id="subsection-rifornimenti">
+        <div class="filter-row">
+          <label class="sr-only" for="fuel-filter-vehicle">Veicolo</label>
+          <select class="filter-select" id="fuel-filter-vehicle" data-change="rifornimenti">
+            <option value="">Tutti i veicoli</option>
+          </select>
+          <button class="btn btn-secondary btn-sm tap" data-action="csv-refuels">⬇️ CSV</button>
+        </div>
+        <div id="fuel-list"></div>
+      </div>
+
+      <div id="subsection-annue" style="display:none">
+        <div class="filter-row">
+          <label class="sr-only" for="spese-filter-vehicle">Veicolo</label>
+          <select class="filter-select" id="spese-filter-vehicle" data-change="spese">
+            <option value="">Tutti i veicoli</option>
+          </select>
+          <button class="btn btn-secondary btn-sm tap" data-action="csv-spese">⬇️ CSV</button>
+        </div>
+        <div id="spese-body"></div>
+      </div>
+    </div>
+
     <!-- FAMIGLIA -->
     <div class="section" id="section-famiglia">
       <div class="invite-box" id="invite-box">
@@ -177,6 +208,10 @@
     <button class="nav-item" id="nav-officina" data-action="tab" data-tab="officina">
       <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 5.6L3 17.6V21h3.4l5.7-5.7a4.5 4.5 0 0 0 5.6-6l-3 3-2.8-.7-.7-2.8 3-3z"/></svg>
       Officina
+    </button>
+    <button class="nav-item" id="nav-spese" data-action="tab" data-tab="spese">
+      <svg viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M3 21h12M6.5 8h5"/><path d="M14 10h2a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>
+      Spese
     </button>
     <button class="nav-item" id="nav-famiglia" data-action="tab" data-tab="famiglia">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15.2c2.6.3 4.5 2 4.5 4.8"/></svg>
@@ -386,6 +421,49 @@
   </div>
 </div>
 
+<!-- MODAL: RIFORNIMENTO (v2.6) -->
+<div class="modal-overlay" id="refuel-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="refuel-modal-title">
+    <div class="modal-title" id="refuel-modal-title">⛽ Rifornimento</div>
+    <input type="hidden" id="r-edit-id" value="">
+    <div class="form-group">
+      <label class="form-label" for="r-vehicle">Veicolo *</label>
+      <select class="form-select" id="r-vehicle"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="r-date">Data *</label>
+        <input type="date" class="form-input" id="r-date">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="r-km">Km contachilometri</label>
+        <input type="text" inputmode="numeric" autocomplete="off" class="form-input" id="r-km" maxlength="12" placeholder="es. 45000" aria-describedby="r-error">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="r-liters">Litri *</label>
+        <input type="text" inputmode="decimal" autocomplete="off" class="form-input" id="r-liters" maxlength="10" placeholder="es. 38,5" aria-describedby="r-error">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="r-amount">Importo (€) *</label>
+        <input type="text" inputmode="decimal" autocomplete="off" class="form-input" id="r-amount" maxlength="10" placeholder="es. 62,40" aria-describedby="r-error">
+      </div>
+    </div>
+    <label class="check-row" for="r-full"><input type="checkbox" id="r-full" checked> <span><b>Pieno</b> (fino allo scatto della pistola)</span></label>
+    <p class="cal-hint">Il consumo si calcola solo tra due pieni con i km: i rifornimenti parziali in mezzo vengono sommati.</p>
+    <div class="form-group">
+      <label class="form-label" for="r-note">Note</label>
+      <input type="text" class="form-input" id="r-note" maxlength="200" placeholder="es. distributore, viaggio…">
+    </div>
+    <p class="form-error" id="r-error" role="alert" hidden></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-action="close-modal" data-modal="refuel-modal">Annulla</button>
+      <button id="btn-save-refuel" class="btn btn-primary" data-action="save-refuel">Salva</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: NOME GARAGE -->
 <div class="modal-overlay" id="garage-name-modal">
   <div class="modal" style="max-width:400px">
@@ -464,6 +542,7 @@
 <link rel="modulepreload" href="js/utils.js">
 <link rel="modulepreload" href="js/csv.js">
 <link rel="modulepreload" href="js/costs.js">
+<link rel="modulepreload" href="js/fuel.js">
 <link rel="modulepreload" href="js/legacy-banner.js">
 <script type="module" src="js/app.js"></script>
 </body>

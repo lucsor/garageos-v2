@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.6.0] — in preparazione
+### Novità
+- **Rifornimenti:** ⛽ sulla scheda di ogni veicolo (un tocco) o ＋ nella nuova scheda **Spese**. Data di oggi e "pieno" già impostati, tastierino numerico, virgola decimale ("38,5"); i valori ambigui come "1.500,5" vengono respinti con un messaggio chiaro, e se i km sono meno dell'ultimo rifornimento l'app chiede conferma. Elenco per veicolo con modifica ed eliminazione, export CSV.
+- **Consumi:** km/l, l/100 km ed €/km calcolati solo tra due pieni, sommando i rifornimenti parziali in mezzo. Compaiono solo se calcolabili; i tratti con km mancanti o incoerenti vengono esclusi e segnalati.
+- **Spese annue:** grafico per anno (interventi, bollo/revisione pagati, carburante), tabella, ripartizione per veicolo ed export CSV. I costi degli interventi multi-tipo sono contati una volta. L'assicurazione non è compresa, perché l'app non registra quando viene pagata.
+- Eliminando un veicolo si eliminano anche i suoi rifornimenti.
+### Sicurezza
+- Regole `garages/{g}/refuels`: accesso solo ai membri; km intero, litri e importo solo numeri, entro limiti; chiavi ammesse chiuse; veicolo esistente; `addedBy` = chi scrive e immutabile; `createdAt`/`updatedAt` = ora del server. **Da pubblicare prima dell'app.**
+### Sviluppo
+- Modulo puro `js/fuel.js` con unit test (`tests/unit/fuel.test.mjs`), test delle regole RF01–RF10, e2e `tests/e2e/fuel.e2e.mjs` (in CI). Progetto e limiti: `docs/v2.6.md`.
+
 ## [2.5.1] — 2026-11-07
 ### Novità
 - **Avviso "vecchia icona":** chi apre ancora l'icona della v1 arriva qui dal redirect con `?from=v1` e vede "Stai usando la vecchia icona. Installa la nuova app e cancella quella vecchia dalla schermata Home." con **Installa** (prompt di Chrome su Android; istruzioni "Condividi → Aggiungi alla schermata Home" su iPhone) e **Ho capito**. Il parametro viene tolto subito dall'URL. Non compare nell'app installata, dopo "Ho capito" o dopo l'installazione da qui.
