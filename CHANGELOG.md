@@ -1,18 +1,22 @@
 # Changelog
 
-## [2.3.0] — in preparazione (branch `fix/v2.3`, non pubblicato)
+## [2.3.0] — 2026-11-07
 ### Correzioni
 - **Service worker:** all'aggiornamento non cancella più la cache delle notifiche (`garageos-notif`) né le cache di altre app sulla stessa origine. Alla prima installazione la pagina non si ricarica più da sola (prima poteva interrompere il login); il reload avviene solo per un aggiornamento richiesto.
-- **Costi multi-tipo:** un intervento con N tipi non moltiplica più il costo per N. Il costo va sul primo tipo e gli altri risultano "incluso". I totali deduplicano i vecchi gruppi con il costo ripetuto.
+- **Costi multi-tipo:** un intervento con N tipi non moltiplica più il costo per N. Il costo va sul primo tipo; gli altri mostrano un badge **"incluso"** e la riga "🔗 Costo già conteggiato in «tipo»". I totali deduplicano i vecchi gruppi con il costo ripetuto.
 - Un `reg.update()` fallito offline non genera più un errore non gestito.
+- **Salvataggi offline:** la finestra si chiude subito con l'avviso "Salvato sul dispositivo" invece di restare in caricamento in attesa del server. Rinnovo scadenza e cancellazione di un veicolo non si bloccano più a metà offline.
+- **Logout su dispositivo condiviso:** l'uscita svuota la cache locale Firestore e `garageos-notif`; se ci sono modifiche non ancora sincronizzate chiede conferma prima di perderle.
+- Service worker: le risposte parziali (206) non vengono messe in cache.
 ### Novità
 - **Offline:** SDK Firebase e font nella cache del service worker, cache Firestore persistente (IndexedDB, multi-scheda), indicatore "● Offline · dati locali". Le modifiche fatte offline vengono sincronizzate al ritorno della rete.
 ### Sviluppo
 - Pre-commit hook (`.githooks/pre-commit`): hash CSP in staging e bump di `VERSION` in `sw.js`.
-- `tools/admin/migrate-numbers.mjs`: migrazione da stringa a numero (solo dry-run; da eseguire dopo il task D3).
+- `tools/admin/migrate-numbers.mjs`: migrazione da stringa a numero (solo dry-run; da eseguire dopo il task D3). I valori con separatore delle migliaia ("1.500", "50.000") non vengono mai convertiti: finiscono nella lista "da sistemare a mano".
+- `tools/admin/check-v2-logins.mjs`: controllo in sola lettura degli accessi alla v2 (prerequisito della pulizia di `members[]`).
 - Test e2e `costs.e2e.mjs` (dati reali) e `pwa.e2e.mjs` (service worker e offline).
 
-## [2.2.0] — hotfix di sicurezza (branch `hotfix/security`, non ancora pubblicato)
+## [2.2.0] — 2026-11-07 — hotfix di sicurezza
 
 ### Sicurezza
 - **Inviti riprogettati** (`invites/{token}`): token `crypto.getRandomValues` da 256 bit, scadenza ≤ 7 giorni,
