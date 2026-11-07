@@ -1,6 +1,6 @@
-# Notifiche push delle scadenze: proposta di architettura (DA APPROVARE)
+# Notifiche push delle scadenze: architettura
 
-Stato: **solo proposta**. Nessun codice scritto, nessuna modifica a regole, Console o GitHub.
+Stato: **approvata il 2026-11-07** con: opzione A (Workload Identity Federation, niente chiavi), notifiche con dettagli di default (mai importi), keepalive verificato. Implementata sul branch `feat/push-notifications`; passi operativi in [`PUSH-SETUP.md`](PUSH-SETUP.md).
 Vincolo: piano **Spark** (niente Cloud Functions).
 
 ---

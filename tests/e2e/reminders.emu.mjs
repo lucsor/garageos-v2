@@ -110,6 +110,19 @@ check((await db.doc(`users/${STALE}/pushTokens/e1`).get()).exists, '--only-uid: 
 const leaked = lines.filter((l) => [OWNER, MEMBER, EX, OFF, STALE, PLATE, 'tok-', '@'].some((x) => l.includes(x)));
 check(leaked.length === 0, `log senza uid, targhe, token o email${leaked.length ? ': ' + leaked.join(' | ') : ''}`);
 
+// ── CLI: senza REMINDERS_ALLOW_LIVE=yes il "live" diventa dry-run; guardie sul target
+{
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const script = fileURLToPath(new URL('../../tools/admin/send-reminders.mjs', import.meta.url));
+  const cli = (args, env = {}) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, GCLOUD_PROJECT: PROJECT, REMINDERS_ALLOW_LIVE: '', ...env } });
+  await reset();
+  const r = cli(['--target', 'emulator', '--mode', 'live']);
+  check(r.status === 0 && /DRY RUN/.test(r.stdout) && await count('pushLog') === 0, 'CLI: --mode live senza REMINDERS_ALLOW_LIVE=yes → dry-run, nessuna scrittura');
+  check(cli(['--target', 'production']).status === 2, 'CLI: --target production con l\'emulatore impostato → rifiuto');
+  check(cli(['--target', 'emulator', '--only-uid', '../x']).status === 2, 'CLI: --only-uid non valido → rifiuto');
+}
+
 if (problems.length) { console.log('\n✖ PROBLEMI:\n' + problems.map((p) => '  - ' + p).join('\n')); process.exit(1); }
 console.log('\n✔ Script dei promemoria OK');
 process.exit(0);

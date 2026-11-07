@@ -1,11 +1,18 @@
 # Changelog
 
-## [2.4.1] — in preparazione (branch `feat/v2.4-calendar`)
+## [2.5.0] — in preparazione (branch `feat/push-notifications`)
+### Novità
+- **Promemoria push delle scadenze** (menu → 🔔 Promemoria): attivazione per dispositivo solo al tocco, giorni di preavviso (default 30, 7, 1) e "con o senza dettagli" per utente. Una notifica al giorno, la mattina, con targa e tipo di scadenza (mai importi). Su iPhone: istruzioni per aggiungere l'app alla Home (iOS 16.4+).
+- Invio da GitHub Actions (piano Spark, niente Cloud Functions) con Workload Identity Federation: nessuna chiave. Idempotente (registro `pushLog`), recupera i giorni saltati, rimuove i token non validi o inutilizzati da 60 giorni, keepalive contro la disattivazione dopo 60 giorni.
+### Sicurezza
+- Regole: `users/{uid}/pushTokens/{sha256(token)}` leggibili solo dal proprietario (anche contro query collectionGroup), preferenze validate, registro inaccessibile ai client.
+
+## [2.4.1] — 2026-11-07
 ### Novità
 - **Scadenze nel calendario:** nella scheda Scadenze, "📅 Calendario" scarica un file `.ics` con tutte le scadenze future (bollo, revisione, assicurazione) dei veicoli attivi, rispettando il filtro per veicolo; il 📅 su ogni scadenza scarica solo quella. Ogni evento è "tutto il giorno" con due promemoria (alle 9:00 di 7 giorni prima e del giorno prima). Si apre con l'app Calendario di iPhone, Android, Google o Outlook. Tutto generato sul dispositivo: nessun dato inviato a server.
 - UID stabile per evento: reimportando il file, i calendari che lo supportano aggiornano l'evento invece di duplicarlo.
 
-## [2.4.0] — in preparazione (branch `feat/v2.4-modules`)
+## [2.4.0] — 2026-11-07
 ### Sviluppo
 - **Moduli ES senza build:** `index.html` (solo markup) + `css/app.css` + `js/app.js` e i moduli puri `js/utils.js`, `js/csv.js`, `js/costs.js`. Nessuna modifica alla logica. CSP senza script inline (`script-src 'self'`): niente più hash da aggiornare.
 - `tools/check-precache.mjs` (pre-commit e CI): ogni file in `css/` e `js/` deve essere nel precache del service worker.

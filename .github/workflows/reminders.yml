@@ -1,0 +1,88 @@
+# Promemoria delle scadenze: invio giornaliero via FCM (piano Spark, niente Cloud Functions).
+# Script: tools/admin/send-reminders.mjs — architettura e decisioni: docs/PUSH.md
+#
+# SICUREZZA
+# - Nessuna chiave: Workload Identity Federation (OIDC di GitHub → service account garageos-reminders),
+#   accettata da Google solo per questo repo e solo per refs/heads/main.
+# - Gira solo su main (cron o lancio manuale), mai sulle PR. Log pubblici: lo script stampa solo conteggi.
+#
+# MODALITÀ (variabili del repo, Settings → Secrets and variables → Actions → Variables)
+# - REMINDERS_ALLOW_LIVE = yes   → invii reali. Senza, ogni esecuzione è un DRY RUN (calcola e conta, non invia).
+# - REMINDERS_ONLY_UID   = <uid> → invia solo a quell'utente (primo test sul tuo account). Vuota = tutti.
+# - GCP_WIF_PROVIDER, GCP_SA_EMAIL → identità per Google Cloud (non sono segreti).
+name: Promemoria scadenze
+
+on:
+  schedule:
+    - cron: '17 6 * * *'          # ogni giorno 06:17 UTC (07:17 / 08:17 in Italia); :17 evita la coda dell'ora piena
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run = calcola e conta senza inviare; live = invio reale (serve anche REMINDERS_ALLOW_LIVE=yes)'
+        type: choice
+        options: [dry-run, live]
+        default: dry-run
+      only_uid:
+        description: 'Invia solo a questo uid (vuoto = variabile REMINDERS_ONLY_UID, o tutti)'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reminders
+  cancel-in-progress: false
+
+jobs:
+  send:
+    name: Invio promemoria
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: reminders
+    permissions:
+      contents: read
+      id-token: write             # token OIDC per la Workload Identity Federation
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/admin/package-lock.json
+      - run: npm ci --prefix tools/admin
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SA_EMAIL }}
+      - name: Promemoria
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'live' }}
+          ONLY_UID: ${{ (github.event_name == 'workflow_dispatch' && inputs.only_uid) || vars.REMINDERS_ONLY_UID }}
+          REMINDERS_ALLOW_LIVE: ${{ vars.REMINDERS_ALLOW_LIVE }}
+          GCLOUD_PROJECT: garageos-879bc
+        run: |
+          args=(--target production --mode "$MODE")
+          if [ -n "$ONLY_UID" ]; then args+=(--only-uid "$ONLY_UID"); fi
+          node tools/admin/send-reminders.mjs "${args[@]}"
+
+  # GitHub DISATTIVA i workflow pianificati di un repo pubblico dopo 60 giorni senza attività nel repo.
+  # Un workflow già disattivato non può riattivarsi da solo: per questo questo job gira a OGNI esecuzione
+  # pianificata (ogni giorno), molto prima dei 60 giorni, e "riattiva" il workflow tramite l'API, il che
+  # azzera il conteggio. Poi verifica che lo stato sia "active": se no, il job fallisce (email al proprietario).
+  # Rete di sicurezza: l'app mostra al proprietario un avviso se l'ultimo invio ha più di 3 giorni.
+  keepalive:
+    name: Keepalive (contatore dei 60 giorni)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Riattiva il workflow (azzera il contatore di inattività)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/reminders.yml/enable"
+          state=$(gh api "repos/${{ github.repository }}/actions/workflows/reminders.yml" --jq .state)
+          echo "Stato del workflow: $state"
+          test "$state" = "active"
