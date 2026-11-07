@@ -1,0 +1,23 @@
+rules_version = '2';
+// BASELINE A — "permissiva" (RICOSTRUITA, non è la regola pubblicata: quella non è nel repo).
+// È il minimo che serve per far funzionare INSIEME v1 e v2 sullo stesso progetto:
+//  - v1 (lucsor.github.io/garageOS) fa getDocs(collection('garages')) => serve list globale
+//  - v2 legge e scrive il garage da NON membro durante il join
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isMember(gid) {
+      return signedIn() && (request.auth.uid == gid ||
+        request.auth.uid in get(/databases/$(database)/documents/garages/$(gid)).data.get('memberUids', []));
+    }
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+    match /garages/{gid} {
+      allow read, write: if signedIn();
+      match /{sub}/{docId} {
+        allow read, write: if isMember(gid);
+      }
+    }
+  }
+}

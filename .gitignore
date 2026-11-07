@@ -1,0 +1,15 @@
+# dipendenze e log
+node_modules/
+*.log
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+.firebase/
+# Windows
+desktop.ini
+Thumbs.db
+# JDK portabile / tool locali (mai committare)
+jdk*/
+.tools/
+# export Firestore con dati personali: mai nel repo
+backup/
