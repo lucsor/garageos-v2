@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.0] — in preparazione (branch `fix/v2.3`, non pubblicato)
+### Correzioni
+- **Service worker:** all'aggiornamento non cancella più la cache delle notifiche (`garageos-notif`) né le cache di altre app sulla stessa origine. Alla prima installazione la pagina non si ricarica più da sola (prima poteva interrompere il login); il reload avviene solo per un aggiornamento richiesto.
+- **Costi multi-tipo:** un intervento con N tipi non moltiplica più il costo per N. Il costo va sul primo tipo e gli altri risultano "incluso". I totali deduplicano i vecchi gruppi con il costo ripetuto.
+- Un `reg.update()` fallito offline non genera più un errore non gestito.
+### Novità
+- **Offline:** SDK Firebase e font nella cache del service worker, cache Firestore persistente (IndexedDB, multi-scheda), indicatore "● Offline · dati locali". Le modifiche fatte offline vengono sincronizzate al ritorno della rete.
+### Sviluppo
+- Pre-commit hook (`.githooks/pre-commit`): hash CSP in staging e bump di `VERSION` in `sw.js`.
+- `tools/admin/migrate-numbers.mjs`: migrazione da stringa a numero (solo dry-run; da eseguire dopo il task D3).
+- Test e2e `costs.e2e.mjs` (dati reali) e `pwa.e2e.mjs` (service worker e offline).
+
 ## [2.2.0] — hotfix di sicurezza (branch `hotfix/security`, non ancora pubblicato)
 
 ### Sicurezza
