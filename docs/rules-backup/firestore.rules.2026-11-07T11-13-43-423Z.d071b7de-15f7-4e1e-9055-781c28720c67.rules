@@ -1,0 +1,37 @@
+// Backup regole pubblicate — progetto garageos-879bc
+// ruleset: projects/garageos-879bc/rulesets/d071b7de-15f7-4e1e-9055-781c28720c67
+// salvato: 2026-11-07T11:13:43.423Z
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /garages/{gid} {
+
+      function isSignedIn() { return request.auth != null; }
+      function isGarageOwner() { return isSignedIn() && request.auth.uid == gid; }
+      function isActiveMember() {
+        return isSignedIn() &&
+          request.auth.uid in get(/databases/$(database)/documents/garages/$(gid)).data.memberUids;
+      }
+
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create, delete: if isGarageOwner();
+
+      allow update: if isGarageOwner() || (
+        isSignedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['members', 'memberUids'])
+      );
+
+      match /{collectionName}/{docId} {
+        allow read, write: if isGarageOwner() || isActiveMember();
+      }
+    }
+  }
+}
