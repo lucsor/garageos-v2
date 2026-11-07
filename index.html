@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-FCfUbuxGie+Tl/3wFeg0UMRbQuE/y2HdCKJJk/JDGy8=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-usMMOPY1doERxvIKcE87Uqcp7WHcuc2EoViNqXH0jLE=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -1620,6 +1620,40 @@ function downloadCSV(filename, rows) {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+// ===== COSTI DEGLI INTERVENTI MULTI-TIPO =====
+// Un salvataggio con N tipi crea N documenti con lo stesso createdAt (stesso veicolo e data) = un "gruppo".
+// - Gruppo legacy (v2.2 e precedenti): ogni documento ha lo STESSO costo → si conta una volta sola.
+// - Gruppo nuovo (v2.3): costo solo sul primo documento, gli altri vuoti → "incluso".
+// - Costi diversi nello stesso gruppo (modificati a mano): sono costi reali, si contano tutti.
+function mechCostInfo(mechs) {
+  const groups = new Map();
+  for (const m of mechs) {
+    if (!m.createdAt) continue;
+    const k = `${m.vehicleId}|${m.date}|${m.createdAt}`;
+    (groups.get(k) || groups.set(k, []).get(k)).push(m);
+  }
+  const info = new Map();   // id → { counted: number, included: bool }
+  for (const m of mechs) info.set(m.id, { counted: parseFloat(m.cost) || 0, included: false });
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    const withCost = g.filter(m => (parseFloat(m.cost) || 0) > 0);
+    const sameCost = withCost.length > 1 && withCost.every(m => parseFloat(m.cost) === parseFloat(withCost[0].cost));
+    const payer = [...withCost].sort((a, b) => a.id.localeCompare(b.id))[0];
+    for (const m of g) {
+      if (sameCost && m !== payer) info.set(m.id, { counted: 0, included: true });
+      else if (!withCost.includes(m) && withCost.length) info.set(m.id, { counted: 0, included: true });
+    }
+  }
+  return info;
+}
+let _costInfoFor = null, _costInfo = new Map();
+function costInfo() {
+  if (_costInfoFor !== data.mechs) { _costInfo = mechCostInfo(data.mechs); _costInfoFor = data.mechs; }
+  return _costInfo;
+}
+const mechCost = m => costInfo().get(m.id)?.counted ?? (parseFloat(m.cost) || 0);
+const sumCost = list => list.reduce((s, m) => s + mechCost(m), 0);
+
 function vehicleLabel(id) {
   const v = data.vehicles.find(v => v.id === id);
   return v ? `${v.plate} ${v.model}` : 'Veicolo rimosso';
@@ -1634,9 +1668,9 @@ function exportMechsCSV() {
   const rows = [['Data', 'Veicolo', 'Intervento', 'Km', 'Costo (€)', 'Officina', 'Note', 'Inserito da']];
   mechs.forEach(m => rows.push([
     m.date || '', vehicleLabel(m.vehicleId), getMechType(m.type).label,
-    m.km || '', m.cost || '', m.garage || '', m.note || '', m.addedBy || ''
+    m.km || '', costInfo().get(m.id)?.included ? 'incluso' : (m.cost || ''), m.garage || '', m.note || '', m.addedBy || ''
   ]));
-  const tot = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const tot = sumCost(mechs);
   rows.push([]);
   rows.push(['', '', 'TOTALE', '', tot, '', '', '']);
   downloadCSV(`garageos-interventi-${new Date().toISOString().split('T')[0]}.csv`, rows);
@@ -2066,7 +2100,10 @@ async function saveMech() {
     if (isEdit) {
       await addMech({ ...base, id: editId, type: _selectedMechTypes[0] });
     } else {
-      await Promise.all(_selectedMechTypes.map(type => addMech({ ...base, id: newId('mechs'), type })));
+      // Più tipi = più documenti (modello attuale): il costo va SOLO sul primo, gli altri risultano "inclusi".
+      // (Prima ogni documento riceveva l'intero costo → totali moltiplicati per il numero di tipi.)
+      await Promise.all(_selectedMechTypes.map((type, i) =>
+        addMech({ ...base, id: newId('mechs'), type, cost: i === 0 ? base.cost : '' })));
     }
     closeModal('mech-modal');
     ['m-km','m-cost','m-garage','m-note'].forEach(id => document.getElementById(id).value = '');
@@ -2125,7 +2162,7 @@ function renderHero() {
 // ===== RENDER: STATS + VEICOLI =====
 function renderStats() {
   const statsRow = document.getElementById('stats-row');
-  const totalCosts = data.mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const totalCosts = sumCost(data.mechs);
   const membersN = data.memberUids.length + 1;
   const frozenN = data.vehicles.filter(v => v.frozen).length;
   const activeN = data.vehicles.length - frozenN;
@@ -2163,7 +2200,7 @@ function renderDashboard() {
   const sorted = [...data.vehicles].sort((a, b) => (a.frozen ? 1 : 0) - (b.frozen ? 1 : 0));
   grid.innerHTML = sorted.map(v => {
     const vMechs = data.mechs.filter(m => m.vehicleId === v.id);
-    const vCost = vMechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    const vCost = sumCost(vMechs);
     const costLine = vMechs.length
       ? `<div class="vc-meta" style="margin-top:4px">🔧 ${vMechs.length} interventi · <b style="color:var(--ink)">€${Math.round(vCost).toLocaleString('it-IT')}</b></div>`
       : '';
@@ -2278,7 +2315,7 @@ function mechItemHTML(m) {
       ${m.addedBy ? `<div style="font-size:11px;color:var(--ink-2);margin-top:4px">${esc(m.addedBy)}</div>` : ''}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-      <div class="mech-cost">${formatCurrency(m.cost)}</div>
+      <div class="mech-cost">${costInfo().get(m.id)?.included ? '<span style="font-size:12px;color:var(--ink-2);font-weight:700">incluso</span>' : formatCurrency(m.cost)}</div>
       <div style="display:flex;gap:6px">
         <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica">✏️</button>
         <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina">🗑️</button>
@@ -2319,13 +2356,13 @@ function renderMeccanica() {
     (byYear[yr] = byYear[yr] || []).push(m);
   });
   const years = Object.keys(byYear).sort((a, b) => b - a);
-  const totalCost = mechs.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+  const totalCost = sumCost(mechs);
 
   let html = `<div class="mech-summary">${mechs.length} interventi · ${years.length} ${years.length === 1 ? 'anno' : 'anni'} · Totale: <strong>€${totalCost.toLocaleString('it-IT')}</strong></div>`;
 
   // Grafico costi per anno (se almeno 2 anni)
   const chronoYears = [...years].reverse().slice(-8).filter(y => y !== 'N/D');
-  const yearCosts = chronoYears.map(y => byYear[y].reduce((s, m) => s + (parseFloat(m.cost) || 0), 0));
+  const yearCosts = chronoYears.map(y => sumCost(byYear[y]));
   const maxCost = Math.max(...yearCosts, 1);
   if (chronoYears.length >= 2 && maxCost > 0) {
     html += `<div class="cost-chart">` + chronoYears.map((y, i) => {
@@ -2340,7 +2377,7 @@ function renderMeccanica() {
 
   years.forEach((yr, idx) => {
     const items = byYear[yr];
-    const yrCost = items.reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    const yrCost = sumCost(items);
     const isCurrentYear = yr == new Date().getFullYear();
     const autoOpen = idx === 0 || isCurrentYear;
     html += `<div class="year-group">
