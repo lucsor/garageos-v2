@@ -1,0 +1,44 @@
+<!-- MODAL: SCADENZA PERSONALIZZATA -->
+<div class="modal-overlay" id="deadline-modal">
+  <div class="modal">
+    <div class="modal-title" id="deadline-modal-title">Nuova scadenza</div>
+    <input type="hidden" id="d-edit-id">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="d-kind">Tipo</label>
+        <select class="form-select" id="d-kind" data-change="deadline-kind"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="d-due">Scadenza *</label>
+        <input type="date" class="form-input" id="d-due">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="d-label">Descrizione *</label>
+      <input type="text" class="form-input" id="d-label" maxlength="60" placeholder="es. Permesso ZTL Milano">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="d-vehicle">Veicolo</label>
+        <select class="form-select" id="d-vehicle"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="d-repeat">Si ripete</label>
+        <select class="form-select" id="d-repeat"></select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="d-cost">Importo previsto (€)</label>
+      <input type="number" class="form-input" id="d-cost" min="0" step="0.01" inputmode="decimal" placeholder="es. 80">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="d-note">Note</label>
+      <textarea class="form-input" id="d-note" rows="2" maxlength="500"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="btn-delete-deadline" data-action="delete-deadline" style="display:none">Elimina</button>
+      <button class="btn btn-secondary" data-action="close-modal" data-modal="deadline-modal">Annulla</button>
+      <button class="btn btn-primary" id="btn-save-deadline" data-action="save-deadline">Salva</button>
+    </div>
+  </div>
+</div>

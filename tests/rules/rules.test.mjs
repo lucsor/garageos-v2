@@ -357,4 +357,76 @@ describe(`Regole: ${RULES}`, () => {
     test('V08 veicolo con campo sconosciuto', () =>
       assertFails(setDoc(doc(ctx(MEMBER), 'garages', GID, 'vehicles', 'unk'), { plate: 'A', model: 'B', isAdmin: true })));
   });
+
+  describe('SCADENZE PERSONALIZZATE (deadlines, v2.4)', () => {
+    const dref = (db, id = 'd1', gid = GID) => doc(db, 'garages', gid, 'deadlines', id);
+    const dl = (uid, extra = {}) => ({
+      kind: 'ztl', label: 'Permesso ZTL', vehicleId: 'mk1abc2def', due: '2027-03-31', repeatMonths: 12,
+      cost: 80, note: 'rinnovo online', createdAt: serverTimestamp(), updatedAt: serverTimestamp(), addedBy: email(uid), ...extra,
+    });
+    const seedDl = () => env.withSecurityRulesDisabled((c) => setDoc(dref(c.firestore()), {
+      kind: 'telepass', label: 'Telepass', vehicleId: null, due: '2027-01-15', repeatMonths: 12, cost: 30,
+      createdAt: Timestamp.fromMillis(Date.now() - DAY), updatedAt: Timestamp.fromMillis(Date.now() - DAY), addedBy: email(OWNER),
+    }));
+
+    test('DL01 membro crea una scadenza completa (numeri veri, timestamp del server)', () =>
+      assertSucceeds(setDoc(dref(ctx(MEMBER), 'n1'), dl(MEMBER))));
+    test('DL02 scadenza minima, per tutto il garage (senza veicolo)', () =>
+      assertSucceeds(setDoc(dref(ctx(OWNER), 'n2'), {
+        kind: 'estintore', label: 'Estintore', due: '2027-06-01', createdAt: serverTimestamp(), updatedAt: serverTimestamp(), addedBy: email(OWNER),
+      })));
+    test('DL03 membro legge, elenca e cancella', async () => {
+      await seedDl();
+      await assertSucceeds(getDoc(dref(ctx(MEMBER))));
+      await assertSucceeds(getDocs(collection(ctx(MEMBER), 'garages', GID, 'deadlines')));
+      await assertSucceeds(deleteDoc(dref(ctx(MEMBER))));
+    });
+    test('DL04 "Fatto" su una ricorrente: sposta la data in avanti', async () => {
+      await seedDl();
+      await assertSucceeds(updateDoc(dref(ctx(MEMBER)), { due: '2028-01-15', updatedAt: serverTimestamp() }));
+    });
+    test('DL05 estraneo non legge né scrive', async () => {
+      await seedDl();
+      await assertFails(getDoc(dref(ctx(STRANGER))));
+      await assertFails(getDocs(collection(ctx(STRANGER), 'garages', GID, 'deadlines')));
+      await assertFails(setDoc(dref(ctx(STRANGER), 'x'), dl(STRANGER)));
+      await assertFails(deleteDoc(dref(ctx(STRANGER))));
+      await assertFails(getDoc(dref(anon())));
+    });
+    test('DL06 ex membro (uscito) non scrive più', async () => {
+      await env.withSecurityRulesDisabled((c) => updateDoc(gref(c.firestore()), { memberUids: [], memberInfo: {} }));
+      await assertFails(setDoc(dref(ctx(MEMBER), 'x'), dl(MEMBER)));
+    });
+    test('DL07 validazione in create: tipo, etichetta, data, ricorrenza, importo, campi, id', async () => {
+      const bad = [
+        { kind: '<img src=x>' }, { kind: 'admin' }, { label: '' }, { label: 'x'.repeat(61) },
+        { due: '31/03/2027' }, { due: '2027-3-1' }, { due: 20270331 },
+        { repeatMonths: 0 }, { repeatMonths: 121 }, { repeatMonths: 1.5 }, { repeatMonths: '12' },
+        { cost: '80' }, { cost: -1 }, { cost: { evil: 1 } }, { note: 'x'.repeat(501) },
+        { vehicleId: "x');alert(1)//" }, { isAdmin: true },
+      ];
+      for (const b of bad) await assertFails(setDoc(dref(ctx(MEMBER), 'b'), dl(MEMBER, b)));
+      await assertFails(setDoc(dref(ctx(MEMBER), "x');alert(1);('"), dl(MEMBER)));
+    });
+    test('DL08 timestamp e autore non falsificabili', async () => {
+      await assertFails(setDoc(dref(ctx(MEMBER), 'c1'), dl(MEMBER, { createdAt: Timestamp.fromMillis(0) })));
+      await assertFails(setDoc(dref(ctx(MEMBER), 'c2'), dl(MEMBER, { updatedAt: '2026-01-01T00:00:00Z' })));
+      await assertFails(setDoc(dref(ctx(MEMBER), 'c3'), dl(MEMBER, { addedBy: email(OWNER) })));
+      const { createdAt, ...noCreated } = dl(MEMBER);
+      await assertFails(setDoc(dref(ctx(MEMBER), 'c4'), noCreated));
+    });
+    test('DL09 update: validazione completa e campi immutabili', async () => {
+      await seedDl();
+      const db = ctx(MEMBER);
+      await assertFails(updateDoc(dref(db), { label: '', updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(dref(db), { cost: 'tanto', updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(dref(db), { due: '2028-01-15' }));
+      await assertFails(updateDoc(dref(db), { addedBy: email(MEMBER), updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(dref(db), { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(dref(db), { kind: 'admin', updatedAt: serverTimestamp() }));
+      await assertSucceeds(updateDoc(dref(db), { repeatMonths: null, cost: null, note: 'ok', updatedAt: serverTimestamp() }));
+    });
+    test('DL10 nessuna scrittura nelle scadenze di un altro garage', () =>
+      assertFails(setDoc(dref(ctx(MEMBER), 'z1', OTHER_OWNER), dl(MEMBER))));
+  });
 });
