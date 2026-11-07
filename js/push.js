@@ -7,7 +7,7 @@ import { doc, setDoc, updateDoc, deleteDoc, getDoc, serverTimestamp } from 'http
 
 // Chiave pubblica VAPID (Console Firebase → Impostazioni progetto → Cloud Messaging → Certificati web push).
 // È pubblica per natura. Vuota = promemoria non ancora configurati (il pulsante lo dice).
-export const VAPID_PUBLIC_KEY = '';
+export const VAPID_PUBLIC_KEY = 'BM28RYLkXLERxMLnkCUn3gBxsksERfNQuVoO8rhunEFDNylD3PLtfRu7nfzIfedRmnN5OaoNyTfIObOhZNy1QjY';
 export const DEFAULT_DAYS = [30, 7, 1];
 export const DAY_OPTIONS = [60, 30, 14, 7, 3, 1, 0];    // sottoinsieme di pushDays() in firestore.rules
 const LS_KEY = 'garageos_push';
