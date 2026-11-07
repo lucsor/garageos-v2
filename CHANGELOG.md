@@ -1,7 +1,8 @@
 # Changelog
 
-## [2.5.0] — in preparazione (branch `feat/push-notifications`)
+## [2.5.1] — 2026-11-07
 ### Novità
+- **Avviso "vecchia icona":** chi apre ancora l'icona della v1 arriva qui dal redirect con `?from=v1` e vede "Stai usando la vecchia icona. Installa la nuova app e cancella quella vecchia dalla schermata Home." con **Installa** (prompt di Chrome su Android; istruzioni "Condividi → Aggiungi alla schermata Home" su iPhone) e **Ho capito**. Il parametro viene tolto subito dall'URL. Non compare nell'app installata, dopo "Ho capito" o dopo l'installazione da qui.
 - **Promemoria push delle scadenze** (menu → 🔔 Promemoria): attivazione per dispositivo solo al tocco, giorni di preavviso (default 30, 7, 1) e "con o senza dettagli" per utente. Una notifica al giorno, la mattina, con targa e tipo di scadenza (mai importi). Su iPhone: istruzioni per aggiungere l'app alla Home (iOS 16.4+).
 - Invio da GitHub Actions (piano Spark, niente Cloud Functions) con Workload Identity Federation: nessuna chiave. Idempotente (registro `pushLog`), recupera i giorni saltati, rimuove i token non validi o inutilizzati da 60 giorni, keepalive contro la disattivazione dopo 60 giorni.
 ### Sicurezza

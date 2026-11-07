@@ -88,7 +88,7 @@ gh variable set REMINDERS_ONLY_UID --repo $R --body "<il tuo uid>"
 ## 4. Messa in produzione (ogni passo con l'ok del proprietario)
 
 1. **Regole** (`firebase deploy --only firestore:rules`), dopo aver salvato quelle pubblicate in `docs/rules-backup/`. Sono compatibili con la v2.4.1: aggiungono soltanto `push`, `pushTokens`, `pushLog` e `pushStatus`.
-2. **App v2.5.0**: merge della PR. Prima va inserita `VAPID_PUBLIC_KEY`: senza, il pulsante dice "non ancora attivi".
+2. **App v2.5.1** (promemoria + avviso "vecchia icona"): merge della PR. Prima va inserita `VAPID_PUBLIC_KEY`: senza, il pulsante dice "non ancora attivi".
 3. **Il tuo telefono**: Promemoria → Attiva su questo dispositivo. Su iPhone, prima aggiungi l'app alla Home.
 4. **Dry run in produzione**: Actions → "Promemoria scadenze" → Run workflow → `dry-run`. Si controllano i conteggi nel log e il job keepalive verde.
 5. **Primo invio reale, solo sul tuo account**: `gh variable set REMINDERS_ALLOW_LIVE --body yes`, con `REMINDERS_ONLY_UID` = il tuo uid → Run workflow → `live`. Verifica la notifica sul telefono.
