@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-UypyElQo4GEgGFktwcN45e+gdX96cKajvRk9r+MwAwo=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-1QJegI2IeoJG3FKHnyNH2L4AhR4Ct71TXz8zb+JYd5w=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -1024,11 +1024,46 @@ function _showToast(msg, color = 'green') {
 }
 
 // ===== AUTH =====
+// ===== LOGIN =====
+const LOGIN_BOX_HTML = document.querySelector('.login-box')?.innerHTML || '';
+// Ripristina la schermata di login con il pulsante (mai lasciare l'utente su "Accesso in corso…" senza via d'uscita)
+function restoreLoginBox() {
+  try { localStorage.removeItem('garageos_auth_pending'); } catch(e) {}
+  const box = document.querySelector('.login-box');
+  if (box && LOGIN_BOX_HTML) box.innerHTML = LOGIN_BOX_HTML;
+}
+function showLoginWaiting(title, sub) {
+  const box = document.querySelector('.login-box');
+  if (!box) return;
+  box.innerHTML = `
+    <div class="login-logo">Garage<span>OS</span></div>
+    <div style="color:var(--ink-2);margin-top:20px;font-size:15px;font-weight:700">${esc(title)}</div>
+    <div style="color:var(--ink-2);font-size:12px;margin-top:8px">${esc(sub)}</div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:18px" data-action="cancel-login">Annulla</button>`;
+}
+// Messaggi chiari per gli errori di login più comuni
+function loginErrorMessage(e) {
+  const code = e?.code || '';
+  if (code.startsWith('auth/requests-from-referer-'))
+    return 'Accesso bloccato: questo indirizzo non è tra quelli ammessi dalla chiave API (Google Cloud → Credenziali → restrizioni sito web).';
+  if (code === 'auth/unauthorized-domain')
+    return 'Dominio non autorizzato: aggiungilo in Firebase Console → Authentication → Authorized domains.';
+  if (code === 'auth/network-request-failed') return 'Connessione assente: riprova quando sei online.';
+  if (code === 'auth/internal-error' && /domain/i.test(e?.message || ''))
+    return 'Impossibile verificare il dominio dell’app (restrizioni della chiave API o domini autorizzati).';
+  return 'Accesso non riuscito' + (code ? ` (${code})` : '') + '.';
+}
+
 getRedirectResult(auth).then(result => {
-  if (result?.user) localStorage.removeItem('garageos_auth_pending');
+  // nessun utente dal redirect: si esce dallo stato "in corso" (prima restava bloccato per sempre)
+  if (!result?.user && localStorage.getItem('garageos_auth_pending')) restoreLoginBox();
+  else localStorage.removeItem('garageos_auth_pending');
 }).catch(e => {
-  localStorage.removeItem('garageos_auth_pending');
-  if (e.code && e.code !== 'auth/no-auth-event') console.error('Redirect result error:', e.code, e.message);
+  restoreLoginBox();
+  if (e.code && e.code !== 'auth/no-auth-event') {
+    console.error('Redirect result error:', e.code, e.message);
+    _showToast(loginErrorMessage(e), 'red');
+  }
 });
 
 async function signInWithGoogle() {
@@ -1046,23 +1081,23 @@ async function signInWithGoogle() {
     return;
   } catch(e) {
     if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
-    if (e.code === 'auth/unauthorized-domain') {
-      _showToast('Dominio non autorizzato: aggiungilo in Firebase Console → Authentication → Authorized domains', 'red');
+    // il redirect ha senso SOLO se il popup non può aprirsi; per ogni altro errore il redirect fallirebbe allo stesso modo
+    const POPUP_UNAVAILABLE = ['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment'];
+    if (!POPUP_UNAVAILABLE.includes(e.code)) {
+      console.error('Login fallito:', e.code, e.message);
+      _showToast(loginErrorMessage(e), 'red');
       return;
     }
-    console.warn('Popup fallito, uso redirect:', e.code);
+    console.warn('Popup non disponibile, uso redirect:', e.code);
   }
   try {
     localStorage.setItem('garageos_auth_pending', '1');
-    const loginBox = document.querySelector('.login-box');
-    if (loginBox) loginBox.innerHTML = `
-      <div class="login-logo">Garage<span>OS</span></div>
-      <div style="color:var(--ink-2);margin-top:20px;font-size:15px;font-weight:700">⏳ Reindirizzamento a Google…</div>
-      <div style="color:var(--ink-2);font-size:12px;margin-top:8px">Verrai riportato sull'app dopo il login</div>`;
+    showLoginWaiting('⏳ Reindirizzamento a Google…', 'Verrai riportato sull’app dopo il login');
     await signInWithRedirect(auth, provider);
   } catch(e) {
-    localStorage.removeItem('garageos_auth_pending');
-    _showToast('Errore accesso: ' + e.message, 'red');
+    restoreLoginBox();
+    console.error('Redirect fallito:', e.code, e.message);
+    _showToast(loginErrorMessage(e), 'red');
   }
 }
 // Pulizia completa dello stato di sessione (logout esplicito, token revocato, logout da un'altra scheda)
@@ -1099,11 +1134,7 @@ onAuthStateChanged(auth, async user => {
     resetSession();
     if (localStorage.getItem('garageos_auth_pending')) {
       document.getElementById('login-screen').classList.remove('hidden');
-      const loginBox = document.querySelector('.login-box');
-      if (loginBox) loginBox.innerHTML = `
-        <div class="login-logo">Garage<span>OS</span></div>
-        <div style="color:var(--ink-2);margin-top:20px;font-size:15px;font-weight:700">⏳ Accesso in corso…</div>
-        <div style="color:var(--ink-2);font-size:12px;margin-top:8px">Completa il login su Google e torna qui</div>`;
+      showLoginWaiting('⏳ Accesso in corso…', 'Completa il login su Google e torna qui');
       return;
     }
     document.getElementById('login-screen').classList.remove('hidden');
@@ -2442,6 +2473,7 @@ function renderAll() {
 const ACTIONS = {
   'apply-update':     () => applyUpdate(),
   'sign-in':          () => signInWithGoogle(),
+  'cancel-login':     () => restoreLoginBox(),
   'sign-out':         () => signOutUser(),
   'user-menu':        () => toggleUserMenu(),
   'garage-name':      () => openGarageName(),

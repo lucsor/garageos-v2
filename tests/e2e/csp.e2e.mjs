@@ -39,6 +39,20 @@ async function openUser(name, extra = '') {
 const role = (page, r) => page.waitForFunction((r) => document.getElementById('garage-role').textContent === r, r, { timeout: T });
 
 console.log('E2E CSP — ' + APP);
+// 0) regressione: flag di login "in corso" rimasto in localStorage non deve bloccare la schermata di accesso
+{
+  const ctx0 = await browser.newContext();
+  const p0 = await ctx0.newPage();
+  p0.on('pageerror', (e) => problems.push(`[login-bloccato] pageerror: ${e.message}`));
+  await p0.goto(`${APP}?emulator`);
+  await p0.evaluate(() => localStorage.setItem('garageos_auth_pending', '1'));
+  await p0.reload();
+  try {
+    await p0.waitForSelector('[data-action="sign-in"]', { timeout: T });
+    log('flag "accesso in corso" orfano: pulsante di login ripristinato');
+  } catch { problems.push('schermata bloccata su "Accesso in corso…" senza pulsante'); }
+  await ctx0.close();
+}
 // 1) alice: login, garage, veicolo con payload XSS nel modello
 const alice = await openUser('alice');
 await role(alice, 'Proprietario');
