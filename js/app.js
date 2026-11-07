@@ -14,7 +14,7 @@ import {
 import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechType, formatDate, formatCurrency, addYears } from './utils.js';
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
-import { deadlineEvents, deadlineEvent, buildICS, icsFilename, downloadICS, localToday } from './ics.js';
+import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
 
 // ===== FIREBASE CONFIG =====
 const firebaseConfig = {
@@ -1242,6 +1242,7 @@ function renderScadenze() {
     if (v.revisione) items.push({ vehicle: v, kind: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
     if (v.assicurazione) items.push({ vehicle: v, kind: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
   });
+  document.getElementById('cal-android-note').textContent = DEVICE === 'android' ? ANDROID_ALARM_NOTE : '';
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
   items.sort((a, b) => new Date(a.date) - new Date(b.date));
   const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
@@ -1261,7 +1262,7 @@ function renderScadenze() {
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
         <div style="display:flex;gap:6px">
-          ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="ics-one" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} ${esc(item.vehicle.plate)} al calendario">📅</button>` : ''}
+          ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} ${esc(item.vehicle.plate)} al calendario">📅</button>` : ''}
           ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
         </div>
       </div>
@@ -1272,20 +1273,46 @@ function renderScadenze() {
 // ===== CALENDARIO (.ics) =====
 // Tutte le scadenze future (rispettando il filtro veicolo), oppure una sola: file .ics con promemoria
 // a 7 giorni e al giorno prima, da aprire con l'app Calendario (iPhone, Android, Google, Outlook).
+const DEVICE = deviceKind();
+const ANDROID_ALARM_NOTE = 'Su Google Calendar i promemoria del file .ics vengono ignorati: dopo l\'importazione impostali tu nell\'evento, oppure usa 📅 → "Google Calendar" sulla singola scadenza.';
+async function deliverICS(filename, text, title, okMsg) {
+  const how = await shareOrDownloadICS(filename, text, title);
+  if (how === 'downloaded') _showToast(okMsg);
+}
 function exportDeadlinesICS() {
   const vid = document.getElementById('scad-filter-vehicle').value;
   const events = deadlineEvents(data.vehicles, { vehicleId: vid });
   if (!events.length) { _showToast('Nessuna scadenza futura da aggiungere al calendario', 'yellow'); return; }
   const v = vid && data.vehicles.find(x => x.id === vid);
-  downloadICS(icsFilename('scadenze', v ? v.plate : '', localToday()), buildICS(events));
-  _showToast(`📅 ${events.length} ${events.length === 1 ? 'scadenza' : 'scadenze'}: apri il file per aggiungerle al calendario`);
+  deliverICS(icsFilename('scadenze', v ? v.plate : '', localToday()), buildICS(events), 'Scadenze GarageOS',
+    `📅 ${events.length} ${events.length === 1 ? 'scadenza' : 'scadenze'}: apri il file per aggiungerle al calendario`);
 }
 function exportOneDeadlineICS(vid, kind) {
   const v = data.vehicles.find(x => x.id === vid);
   if (!v || !v[kind]) return;
   const e = deadlineEvent(v, kind);
-  downloadICS(icsFilename(kind, v.plate), buildICS([e], { calName: e.summary }));
-  _showToast('📅 Apri il file per aggiungere la scadenza al calendario');
+  closeModal('cal-modal');
+  deliverICS(icsFilename(kind, v.plate), buildICS([e], { calName: e.summary }), e.summary,
+    '📅 Apri il file per aggiungere la scadenza al calendario');
+}
+// 📅 su una scadenza: scelta tra Google Calendar (link) e file .ics (con i promemoria)
+function openCalendarChoice(vid, kind) {
+  const v = data.vehicles.find(x => x.id === vid);
+  if (!v || !v[kind]) return;
+  const e = deadlineEvent(v, kind);
+  document.getElementById('cal-title').textContent = `${e.summary} · ${formatDate(e.date)}`;
+  const g = document.getElementById('cal-google');
+  g.href = googleCalendarUrl(e);
+  const f = document.getElementById('cal-file');
+  f.dataset.id = vid; f.dataset.kind = kind;
+  f.textContent = DEVICE === 'ios' ? '📅 Calendario di iPhone (.ics)' : '📅 File .ics (iPhone, Outlook, altri)';
+  // su Android Google Calendar è la scelta naturale e va per prima; altrove prima il file con i promemoria
+  const box = document.getElementById('cal-options');
+  if (DEVICE === 'android') box.prepend(g); else box.prepend(f);
+  document.getElementById('cal-note').textContent = DEVICE === 'android'
+    ? 'Google Calendar usa le tue notifiche predefinite per gli eventi "tutto il giorno": controllale nell\'evento. Il file .ics contiene due promemoria (7 giorni e 1 giorno prima), ma Google Calendar li ignora.'
+    : 'Il file .ics contiene due promemoria (alle 9:00 di 7 giorni prima e del giorno prima). Con Google Calendar valgono invece le tue notifiche predefinite.';
+  openModal('cal-modal');
 }
 
 // ===== RENDER: PNEUMATICI =====
@@ -1555,6 +1582,7 @@ const ACTIONS = {
   'csv-tires':        () => exportTiresCSV(),
   'ics-all':          () => exportDeadlinesICS(),
   'ics-one':          d => exportOneDeadlineICS(d.id, d.kind),
+  'cal-choice':       d => openCalendarChoice(d.id, d.kind),
   'send-invite':      () => sendInvite(),
   'copy-link':        () => copyShareLink(),
   'revoke-invite':    d => revokeInvite(d.id),

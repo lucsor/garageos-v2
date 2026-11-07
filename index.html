@@ -91,6 +91,7 @@
         </select>
         <button class="btn btn-secondary btn-sm" data-action="ics-all" title="Scarica un file .ics con tutte le scadenze future e i promemoria">📅 Calendario</button>
       </div>
+      <p class="cal-hint" id="cal-android-note"></p>
       <div class="scadenze-list" id="scadenze-list"></div>
     </div>
 
@@ -382,6 +383,22 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" data-action="close-modal" data-modal="garage-name-modal">Annulla</button>
       <button id="btn-save-gname" class="btn btn-primary" data-action="save-garage-name">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: AGGIUNGI AL CALENDARIO (una scadenza) -->
+<div class="modal-overlay" id="cal-modal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title">Aggiungi al calendario</div>
+    <div class="cal-event" id="cal-title"></div>
+    <div class="cal-options" id="cal-options">
+      <button class="btn btn-secondary" id="cal-file" data-action="ics-one">📅 File .ics</button>
+      <a class="btn btn-secondary" id="cal-google" href="#" target="_blank" rel="noopener noreferrer">🗓️ Google Calendar</a>
+    </div>
+    <p class="cal-hint" id="cal-note"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-action="close-modal" data-modal="cal-modal">Chiudi</button>
     </div>
   </div>
 </div>

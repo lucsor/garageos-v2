@@ -530,3 +530,10 @@ body {
   .mech-type-grid { grid-template-columns: repeat(2, 1fr); }
   .stats-row { grid-template-columns: 1fr 1fr; }
 }
+
+/* calendario (.ics / Google Calendar) */
+.cal-event { font-weight: 700; color: var(--ink); margin: -8px 0 16px; }
+.cal-options { display: flex; flex-direction: column; gap: 10px; }
+.cal-options .btn { width: 100%; justify-content: center; text-decoration: none; }
+.cal-hint { color: var(--ink-2); font-size: 12px; line-height: 1.5; margin: 10px 2px 0; }
+.cal-hint:empty { display: none; }

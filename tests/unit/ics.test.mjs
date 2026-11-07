@@ -64,3 +64,37 @@ test('nome file sicuro e data locale', () => {
   assert.equal(icsFilename('scadenze', '', '2026-11-07'), 'garageos-scadenze-2026-11-07.ics');
   assert.match(localToday(), /^\d{4}-\d{2}-\d{2}$/);
 });
+
+test('link "Aggiungi a Google Calendar": evento tutto il giorno, testo codificato', async () => {
+  const { googleCalendarUrl } = await import('../../js/ics.js');
+  const u = new URL(googleCalendarUrl(deadlineEvent(V[0], 'bollo')));
+  assert.equal(u.origin + u.pathname, 'https://calendar.google.com/calendar/render');
+  assert.equal(u.searchParams.get('action'), 'TEMPLATE');
+  assert.equal(u.searchParams.get('dates'), '20270131/20270201');
+  assert.equal(u.searchParams.get('text'), '📋 Bollo — AB123CD');
+  assert.match(u.searchParams.get('details'), /Panda \(AB123CD\)/);
+});
+
+test('dispositivo e consegna del file: condivisione su telefono, download altrove o se non supportata', async () => {
+  const { deviceKind, shareOrDownloadICS } = await import('../../js/ics.js');
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36';
+  assert.equal(deviceKind({ userAgent: IPHONE }), 'ios');
+  assert.equal(deviceKind({ userAgent: ANDROID }), 'android');
+  assert.equal(deviceKind({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', maxTouchPoints: 5 }), 'ios', 'iPad con UA desktop');
+  assert.equal(deviceKind({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }), 'other');
+  // download finto (in Node non c'è il DOM)
+  let downloads = 0;
+  globalThis.document = { createElement: () => ({ click() { downloads++; } }) };
+  const shared = [];
+  const nav = (ua, can, shareImpl) => ({ userAgent: ua, canShare: () => can, share: shareImpl || (async (d) => { shared.push(d.files[0]); }) });
+  assert.equal(await shareOrDownloadICS('a.ics', 'X', 't', nav(IPHONE, true)), 'shared');
+  assert.equal(shared[0].name, 'a.ics');
+  assert.equal(shared[0].type, 'text/calendar');
+  assert.equal(await shareOrDownloadICS('a.ics', 'X', 't', nav(IPHONE, true, async () => { throw Object.assign(new Error('x'), { name: 'AbortError' }); })), 'cancelled');
+  assert.equal(await shareOrDownloadICS('a.ics', 'X', 't', nav(IPHONE, true, async () => { throw Object.assign(new Error('x'), { name: 'NotAllowedError' }); })), 'downloaded');
+  assert.equal(await shareOrDownloadICS('a.ics', 'X', 't', nav(ANDROID, false)), 'downloaded', 'Chrome Android non condivide .ics');
+  assert.equal(await shareOrDownloadICS('a.ics', 'X', 't', nav('Mozilla/5.0 (Windows NT 10.0)', true)), 'downloaded', 'desktop: sempre download');
+  assert.equal(downloads, 3);
+  delete globalThis.document;
+});

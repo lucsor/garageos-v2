@@ -116,6 +116,44 @@ export function icsFilename(...parts) {
   return 'garageos-' + parts.map((p) => String(p).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).filter(Boolean).join('-') + '.ics';
 }
 
+// "Aggiungi a Google Calendar" per una singola scadenza: link a calendar.google.com (nessun server nostro).
+// Utile su Android, dove Google Calendar ignora i VALARM dei file .ics importati: con il link l'evento
+// usa le notifiche predefinite dell'utente per gli eventi "tutto il giorno".
+export function googleCalendarUrl(e) {
+  const p = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: e.summary,
+    dates: `${ymd(e.date)}/${ymd(nextDay(e.date))}`,
+    details: e.description,
+  });
+  return 'https://calendar.google.com/calendar/render?' + p.toString();
+}
+
+// Tipo di dispositivo, solo per scegliere testi e modalità di consegna del file
+export function deviceKind(nav = globalThis.navigator) {
+  const ua = nav?.userAgent || '';
+  if (/Android/i.test(ua)) return 'android';
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && (nav?.maxTouchPoints || 0) > 1)) return 'ios';
+  return 'other';
+}
+
+// Su telefono la prima scelta è il foglio di condivisione con il file (Web Share API): nella PWA installata
+// su iPhone il download di un blob può non aprire nulla. Se la condivisione di file non è supportata
+// (es. Chrome Android non ammette i .ics) o fallisce, si scarica il file. Va chiamata dentro il click.
+export async function shareOrDownloadICS(filename, text, title, nav = globalThis.navigator) {
+  if (deviceKind(nav) !== 'other' && typeof File === 'function') {
+    const file = new File([text], filename, { type: 'text/calendar' });
+    let can = false;
+    try { can = !!nav.canShare?.({ files: [file] }); } catch {}
+    if (can) {
+      try { await nav.share({ files: [file], title }); return 'shared'; }
+      catch (e) { if (e?.name === 'AbortError') return 'cancelled'; }
+    }
+  }
+  downloadICS(filename, text);
+  return 'downloaded';
+}
+
 export function downloadICS(filename, text) {
   const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
   const a = document.createElement('a');
