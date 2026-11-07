@@ -68,9 +68,13 @@ self.addEventListener('fetch', event => {
   // Tutto il resto fuori origine (Firestore, Auth, ...): lascia al browser / all'SDK (che ha la sua cache offline)
   if (url.origin !== self.location.origin) return;
 
-  // Stessa origine: network-first, fallback cache (offline)
+  // Stessa origine: network-first, fallback cache (offline).
+  // cache: 'no-cache' = sempre una verifica col server (ETag → 304, quasi gratis): con l'app divisa in più
+  // moduli ES, la cache HTTP del browser (max-age=600 su GitHub Pages) potrebbe altrimenti servire per
+  // qualche minuto dopo un deploy un app.js nuovo con un utils.js vecchio → import rotto, pagina bianca.
   event.respondWith(
-    fetch(req)
+    // (le navigazioni no: una Request di tipo navigate non si può ricreare con opzioni)
+    (req.mode === 'navigate' ? fetch(req) : fetch(req, { cache: 'no-cache' }))
       .then(response => {
         // non salvare le varianti con query string (?invite=..., ?emulator) come pagine separate
         if (response.ok && !url.search) {
