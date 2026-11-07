@@ -14,6 +14,7 @@ import {
 import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechType, formatDate, formatCurrency, addYears } from './utils.js';
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
+import { initLegacyBanner } from './legacy-banner.js';
 import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
 
 // ===== FIREBASE CONFIG =====
@@ -45,6 +46,9 @@ if (USE_EMULATOR) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   console.warn('[GarageOS] Emulatori locali attivi');
 }
+
+// Arrivo dalla vecchia icona della v1 (?from=v1): avviso + pulizia dell'URL, prima degli altri parametri
+try { initLegacyBanner(); } catch(e) { console.warn('[GarageOS] avviso vecchia icona:', e); }
 
 // ===== STATE =====
 let currentUser = null;
