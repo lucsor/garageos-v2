@@ -27,8 +27,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Hash CSP dello script inline
+      - name: CSP (hash degli script inline, o script-src 'self' senza inline)
         run: node tools/csp-hash.mjs --check
+      - name: PRECACHE del service worker completo (css/ e js/)
+        run: node tools/check-precache.mjs
+      - name: Unit test dei moduli puri
+        run: node --test tests/unit/modules.test.mjs
       - name: VERSION del service worker incrementata (solo PR che toccano file dell'app)
         if: github.event_name == 'pull_request'
         run: |
