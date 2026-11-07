@@ -11,3 +11,5 @@ Thumbs.db
 # JDK portabile / tool locali (mai committare)
 jdk*/
 .tools/
+# export Firestore con dati personali: mai nel repo
+backup/

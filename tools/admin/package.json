@@ -1,0 +1,7 @@
+{
+  "name": "garageos-admin-tools",
+  "private": true,
+  "type": "module",
+  "description": "Script Admin SDK una tantum (backup, censimento, migrazione). Girano FUORI dalle regole: solo il proprietario del progetto.",
+  "dependencies": { "firebase-admin": "^13.4.0", "firebase-tools": "^14.9.0" }
+}
