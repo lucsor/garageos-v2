@@ -1,6 +1,6 @@
 // ===== GarageOS Service Worker =====
 // Aggiorna questo numero ogni volta che carichi una nuova versione!
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const CACHE_NAME = 'garageos-v' + VERSION;
 
 // File da cachare per uso offline (path RELATIVI: funzionano ovunque sia hostata l'app)
@@ -29,7 +29,8 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        // SOLO le versioni precedenti di questa app: mai garageos-notif né cache di altre app sulla stessa origine
+        keys.filter(k => k.startsWith('garageos-v') && k !== CACHE_NAME).map(k => caches.delete(k))
       )
     ).then(() => self.clients.claim())
   );

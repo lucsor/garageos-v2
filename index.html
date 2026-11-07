@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-1QJegI2IeoJG3FKHnyNH2L4AhR4Ct71TXz8zb+JYd5w=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-m5V9m/R19oSQepSydz6cbLAGlB/lX5h2o8PplWbfmGA=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -2539,7 +2539,7 @@ function applyUpdate() {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    reg.update();
+    reg.update().catch(() => {});   // offline: nessun controllo aggiornamenti, non è un errore
     reg.addEventListener('updatefound', () => {
       const newWorker = reg.installing;
       newWorker.addEventListener('statechange', () => {
@@ -2554,7 +2554,20 @@ if ('serviceWorker' in navigator) {
       document.getElementById('update-banner').classList.add('show');
     }
   }).catch(err => console.log('SW registration failed:', err));
-  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload());
+  // Ricarica SOLO se un SW controllava già la pagina (= aggiornamento richiesto dall'utente) e una volta sola.
+  // Alla prima installazione clients.claim() fa scattare controllerchange: prima ricaricava la pagina,
+  // anche durante il popup di login.
+  // La condizione va valutata a OGNI cambio: prima installazione = da nessun controller a uno (niente reload);
+  // aggiornamento = da un controller a un altro (reload), anche se nella stessa sessione c'era stata l'installazione.
+  let _controller = navigator.serviceWorker.controller;
+  let _refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const hadController = !!_controller;
+    _controller = navigator.serviceWorker.controller;
+    if (!hadController || _refreshing) return;
+    _refreshing = true;
+    window.location.reload();
+  });
 }
 
 // ===== INIT =====
