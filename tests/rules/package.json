@@ -1,0 +1,19 @@
+{
+  "name": "garageos-rules-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "emu": "firebase emulators:exec --only firestore --project demo-garageos",
+    "test": "npm run -s emu -- \"node --test --test-reporter=spec rules.test.mjs\"",
+    "test:audit": "npm run -s emu -- \"node --test --test-reporter=spec audit-baseline.test.mjs\"",
+    "test:A": "cross-env RULES=baseline/A-permissive.rules npm run -s test:audit",
+    "test:B": "cross-env RULES=baseline/B-strict-v2-compatible.rules npm run -s test:audit",
+    "test:published": "cross-env RULES=baseline/published.rules npm run -s test:audit"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "cross-env": "^7.0.3",
+    "firebase": "^11.10.0",
+    "firebase-tools": "^14.9.0"
+  }
+}

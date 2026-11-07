@@ -1,0 +1,38 @@
+rules_version = '2';
+// BASELINE B — la regola PIÙ STRETTA che non rompe il codice v2 attuale (RICOSTRUITA).
+// Limiti strutturali (non risolvibili senza cambiare il codice):
+//  - checkJoinLink() fa getDoc(garage) PRIMA di essere membro  => read deve essere aperto a ogni utente loggato
+//  - checkJoinLink() scrive members[] + memberUids da non membro => update "di join" aperto a ogni utente loggato
+//  - le regole non possono iterare members[] (lista di mappe) per verificare che esista un invito pending
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function garage(gid) { return get(/databases/$(database)/documents/garages/$(gid)).data; }
+    function isOwner(gid) { return signedIn() && request.auth.uid == gid; }
+    function isMember(gid) {
+      return isOwner(gid) || (signedIn() && request.auth.uid in garage(gid).get('memberUids', []));
+    }
+    // update consentito a un non-proprietario: solo members/memberUids, e memberUids cresce al massimo di sé stesso
+    function isJoinShape() {
+      let before = resource.data.get('memberUids', []);
+      let after  = request.resource.data.get('memberUids', []);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberUids'])
+        && after.hasAll(before)
+        && after.removeAll(before).hasOnly([request.auth.uid]);
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+    match /garages/{gid} {
+      allow read: if signedIn();
+      allow create: if isOwner(gid) && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if (isOwner(gid) && request.resource.data.ownerUid == resource.data.ownerUid)
+                    || (signedIn() && isJoinShape());
+      allow delete: if isOwner(gid);
+      match /{sub}/{docId} {
+        allow read, write: if isMember(gid);
+      }
+    }
+  }
+}
