@@ -84,9 +84,10 @@ async function cacheFirst(req) {
   const cached = await caches.match(req);
   if (cached) return cached;
   const response = await fetch(req);
-  if (response.ok || response.type === 'opaque') {
+  // solo risposte complete (niente 206 parziali, che cache.put rifiuta)
+  if (response.status === 200 || response.type === 'opaque') {
     const cache = await caches.open(CACHE_NAME);
-    cache.put(req, response.clone());
+    cache.put(req, response.clone()).catch(() => {});
   }
   return response;
 }

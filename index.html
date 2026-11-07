@@ -5,7 +5,7 @@
 <!-- CSP: niente 'unsafe-inline' per gli script. L'unico script inline è autorizzato via hash:
      dopo OGNI modifica allo script module eseguire `node tools/csp-hash.mjs` (aggiorna l'hash)
      e verificare con `node tools/csp-hash.mjs --check`. Hash sbagliato = app bianca in produzione. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-c2P3jbK5ObUZ7VZJg8MgLXhZ8Om7m5L53L8ToYhgidE=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-TFsF6Gw1d3Vp50kaORaZXph+iRKCdE04YRpMMFK6e+4=' https://www.gstatic.com/firebasejs/10.11.0/ https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://garageos-879bc.firebaseapp.com http://127.0.0.1:8080 http://127.0.0.1:9099; frame-src https://garageos-879bc.firebaseapp.com https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
@@ -937,7 +937,7 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, where, writeBatch, runTransaction, serverTimestamp, Timestamp,
   onSnapshot, setDoc, deleteDoc, query, orderBy, getDoc, arrayUnion, arrayRemove, deleteField,
-  connectFirestoreEmulator
+  connectFirestoreEmulator, waitForPendingWrites, terminate, clearIndexedDbPersistence
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
@@ -1120,12 +1120,21 @@ function resetSession() {
 }
 
 async function signOutUser() {
+  toggleUserMenu(false);
+  // Modifiche fatte offline e non ancora inviate: uscendo (e svuotando la cache locale) andrebbero perse.
+  const flushed = await Promise.race([
+    waitForPendingWrites(db).then(() => true, () => true),
+    new Promise(r => setTimeout(() => r(false), 4000)),
+  ]);
+  if (!flushed && !await showConfirm('Ci sono modifiche non ancora sincronizzate (sei offline?). Se esci adesso andranno perse. Uscire comunque?')) return;
   await fbSignOut(auth);
   resetSession();
-  document.getElementById('login-screen').classList.remove('hidden');
-  document.getElementById('app').classList.remove('visible');
-  document.getElementById('user-avatar').style.display = 'none';
-  toggleUserMenu(false);
+  // La cache locale (IndexedDB) e la cache delle notifiche contengono i dati del garage:
+  // su un dispositivo condiviso non devono restare a disposizione del prossimo utente.
+  try { await caches.delete('garageos-notif'); } catch {}
+  try { await terminate(db); await clearIndexedDbPersistence(db); }
+  catch (e) { console.warn('cache locale non svuotata (altra scheda aperta?):', e.code || e); }
+  window.location.reload();   // riparte con un'istanza Firestore nuova
 }
 
 function toggleUserMenu(force) {
@@ -1423,13 +1432,25 @@ function setStatus(state) {
 // ===== FIRESTORE CRUD =====
 // Gli ID dei documenti sono generati SOLO da Firestore (mai dall'utente): vedi newId().
 function vDoc(name, id) { return doc(db, `garages/${garageId}/${name}/${id}`); }
+// Una scrittura è applicata SUBITO alla cache locale, ma la promessa si risolve solo alla conferma del server:
+// offline non arriverebbe mai (modale bloccata in caricamento). Dopo 2,5 s la si considera "in coda":
+// verrà inviata al ritorno della rete; un eventuale rifiuto successivo viene comunque mostrato.
+async function written(p) {
+  const QUEUED = Symbol('queued');
+  const r = await Promise.race([p, new Promise(res => setTimeout(() => res(QUEUED), 2500))]);
+  if (r === QUEUED) {
+    p.catch(e => _showToast('Modifica non sincronizzata: ' + (e.code || e.message), 'red'));
+    _showToast('Salvato sul dispositivo: verrà sincronizzato appena torna la rete', 'yellow');
+  }
+}
 function newId(name) { return doc(collection(db, `garages/${garageId}/${name}`)).id; }
 async function addVehicle(v) { const { id, ...rest } = v; await setDoc(vDoc('vehicles', id), rest); }
 async function addTire(t)    { const { id, ...rest } = t; await setDoc(vDoc('tires', id), rest); }
 async function addMech(m)    { const { id, ...rest } = m; await setDoc(vDoc('mechs', id), rest); }
 async function removeVehicle(id) {
-  await deleteDoc(vDoc('vehicles', id));
+  // tutte insieme: offline una cancellazione "attende" il server e bloccherebbe le successive
   await Promise.all([
+    deleteDoc(vDoc('vehicles', id)),
     ...data.tires.filter(t => t.vehicleId === id).map(t => deleteDoc(vDoc('tires', t.id))),
     ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
   ]);
@@ -1759,15 +1780,14 @@ async function renewDeadline(vid, kind) {
   if (!await showConfirm(`Segnare ${conf.label} di ${v.plate} come rinnovato? Nuova scadenza: ${formatDate(newDate)}.${costMsg}`)) return;
   try {
     const now = new Date().toISOString();
-    await addVehicle({ ...v, [conf.field]: newDate, updatedAt: now });
-    await addMech({
+    await written(Promise.all([addVehicle({ ...v, [conf.field]: newDate, updatedAt: now }), addMech({
       id: newId('mechs'), vehicleId: vid, type: kind,
       date: now.split('T')[0], km: v.km || '',
       cost: v[conf.costField] || '', garage: '',
       note: `Rinnovo ${conf.label} — nuova scadenza ${formatDate(newDate)}`,
       createdAt: now, updatedAt: now,
       addedBy: currentUser?.email || '?',
-    });
+    })]));
     _showToast(`✅ ${conf.label} rinnovato · prossima scadenza ${formatDate(newDate)}`);
   } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
@@ -1998,7 +2018,7 @@ async function saveVehicle() {
   };
   setButtonLoading('btn-save-vehicle', true);
   try {
-    await addVehicle(v);
+    await written(addVehicle(v));
     closeModal('vehicle-modal');
   } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
   setButtonLoading('btn-save-vehicle', false);
@@ -2006,7 +2026,7 @@ async function saveVehicle() {
 
 async function deleteVehicle(id) {
   if (!await showConfirm('Eliminare questo veicolo e tutti i suoi dati?')) return;
-  try { await removeVehicle(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  try { await written(removeVehicle(id)); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
 
 // ===== TIRE CRUD =====
@@ -2048,14 +2068,14 @@ async function saveTire() {
     updatedAt: new Date().toISOString(),
   };
   setButtonLoading('btn-save-tire', true);
-  try { await addTire(t); closeModal('tire-modal'); }
+  try { await written(addTire(t)); closeModal('tire-modal'); }
   catch(e) { _showToast('Errore: ' + e.message, 'red'); }
   setButtonLoading('btn-save-tire', false);
 }
 
 async function deleteTire(id) {
   if (!await showConfirm('Eliminare questo cambio gomme?')) return;
-  try { await removeTire(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  try { await written(removeTire(id)); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
 
 // ===== MECH CRUD =====
@@ -2100,12 +2120,12 @@ async function saveMech() {
   setButtonLoading('btn-save-mech', true);
   try {
     if (isEdit) {
-      await addMech({ ...base, id: editId, type: _selectedMechTypes[0] });
+      await written(addMech({ ...base, id: editId, type: _selectedMechTypes[0] }));
     } else {
       // Più tipi = più documenti (modello attuale): il costo va SOLO sul primo, gli altri risultano "inclusi".
       // (Prima ogni documento riceveva l'intero costo → totali moltiplicati per il numero di tipi.)
-      await Promise.all(_selectedMechTypes.map((type, i) =>
-        addMech({ ...base, id: newId('mechs'), type, cost: i === 0 ? base.cost : '' })));
+      await written(Promise.all(_selectedMechTypes.map((type, i) =>
+        addMech({ ...base, id: newId('mechs'), type, cost: i === 0 ? base.cost : '' }))));
     }
     closeModal('mech-modal');
     ['m-km','m-cost','m-garage','m-note'].forEach(id => document.getElementById(id).value = '');
@@ -2115,7 +2135,7 @@ async function saveMech() {
 
 async function deleteMech(id) {
   if (!await showConfirm('Eliminare questo intervento?')) return;
-  try { await removeMech(id); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
+  try { await written(removeMech(id)); } catch(e) { _showToast('Errore: ' + e.message, 'red'); }
 }
 
 // ===== RENDER: HEADER + HERO =====

@@ -2,7 +2,9 @@
 //  B2  alla PRIMA installazione del SW la pagina NON si ricarica da sola
 //  B1  all'aggiornamento del SW la cache "garageos-notif" (e cache di altre app sulla stessa origine) sopravvivono
 //  D1  offline vero (server spento, rete e gstatic bloccati): l'app si apre dalla cache del SW, mostra i dati
-//      dalla cache Firestore persistente, accetta una modifica offline e la sincronizza al ritorno della rete
+//      dalla cache Firestore persistente, accetta una modifica offline (la modale si chiude, non resta in
+//      caricamento) e la sincronizza al ritorno della rete
+//  S   all'uscita (logout) la cache locale Firestore (IndexedDB) e garageos-notif vengono svuotate
 // Prerequisiti: emulatori auth+firestore --project garageos-879bc. Uso: node pwa.e2e.mjs
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
@@ -112,6 +114,8 @@ if (offlineOk) {
   await page.click('[data-action="save-vehicle"]').catch(() => {});
   await page.waitForFunction(() => document.querySelectorAll('.vehicle-card').length === 2, null, { timeout: 10_000 }).catch(() => {});
   check(await page.$$eval('.vehicle-card', (e) => e.length) === 2, 'offline: un veicolo aggiunto offline compare subito (scrittura in coda)');
+  const closed = await page.waitForFunction(() => !document.getElementById('vehicle-modal').classList.contains('open'), null, { timeout: 8000 }).then(() => true, () => false);
+  check(closed, 'offline: la finestra di salvataggio si chiude (non resta bloccata in attesa del server)');
 }
 // ritorno online → sincronizzazione
 await startServer();
@@ -124,6 +128,28 @@ for (let i = 0; i < 30 && !synced; i++) {
   if (!synced) await new Promise((r) => setTimeout(r, 1000));
 }
 check(synced, 'tornati online: la modifica fatta offline arriva su Firestore');
+
+// ── S: logout → cache locale svuotata (dispositivo condiviso)
+const idbHas = (needle) => page.evaluate(async (needle) => {
+  const out = [];
+  for (const { name } of await indexedDB.databases()) {
+    if (!name.startsWith('firestore/')) continue;
+    const db = await new Promise((res, rej) => { const r = indexedDB.open(name); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    for (const st of db.objectStoreNames) {
+      const all = await new Promise((res) => { const r = db.transaction(st).objectStore(st).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => res([]); });
+      if (JSON.stringify(all).includes(needle)) out.push(st);
+    }
+    db.close();
+  }
+  return out;
+}, needle);
+await page.evaluate(async () => { await (await caches.open('garageos-notif')).put('notif-data', new Response('{"deadlines":[{"plate":"OF123LN"}]}')); });
+check((await idbHas('OF123LN')).length > 0, 'prima del logout la cache locale contiene i dati del garage (controllo del test)');
+await Promise.all([page.waitForNavigation({ timeout: T }), page.evaluate(() => document.querySelector('[data-action="sign-out"]').click())]);
+await page.waitForSelector('[data-action="sign-in"]', { timeout: T });
+const left = await idbHas('OF123LN');
+check(left.length === 0, `dopo il logout nessun dato del garage nella cache locale${left.length ? ' (trovato in: ' + left.join(', ') + ')' : ''}`);
+check(!(await page.evaluate(() => caches.keys())).includes('garageos-notif'), 'dopo il logout la cache garageos-notif è stata eliminata');
 
 await browser.close();
 await stopServer();
