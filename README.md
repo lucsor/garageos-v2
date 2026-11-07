@@ -45,6 +45,9 @@ npm run test:audit     # suite dell'audit sul vecchio flusso (es. RULES=baseline
 npm run test:prod-data # regole sui dati reali (backup in ~/Documents/garageos-backup)
 ```
 
+## CI (GitHub Actions)
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) gira a ogni PR verso `main` e a ogni push su `main`: hash CSP, bump di `VERSION` nel SW (solo PR che toccano file dell'app), test delle regole, e2e CSP e PWA/offline sugli emulatori. Nessun segreto e nessun accesso alla produzione; le suite sui dati reali (`prod-data`, `first-open`, `costs`) restano locali perché i backup non vanno mai su GitHub.
+
 ## Sviluppo locale con emulatori
 ```sh
 firebase emulators:start --only auth,firestore --project garageos-879bc
