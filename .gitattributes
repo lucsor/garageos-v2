@@ -1,0 +1,4 @@
+# LF ovunque: la CSP usa l hash SHA-256 dello script inline, calcolato sul testo con LF
+* text=auto eol=lf
+*.png binary
+*.ico binary
