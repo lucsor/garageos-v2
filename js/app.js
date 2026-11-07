@@ -14,6 +14,7 @@ import {
 import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechType, formatDate, formatCurrency, addYears } from './utils.js';
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
+import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
 
 // ===== FIREBASE CONFIG =====
 const firebaseConfig = {
@@ -1241,6 +1242,7 @@ function renderScadenze() {
     if (v.revisione) items.push({ vehicle: v, kind: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
     if (v.assicurazione) items.push({ vehicle: v, kind: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
   });
+  document.getElementById('cal-android-note').textContent = DEVICE === 'android' ? ANDROID_ALARM_NOTE : '';
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
   items.sort((a, b) => new Date(a.date) - new Date(b.date));
   const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
@@ -1259,10 +1261,62 @@ function renderScadenze() {
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
-        ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
+        <div style="display:flex;gap:6px">
+          ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} ${esc(item.vehicle.plate)} al calendario">📅</button>` : ''}
+          ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
+        </div>
       </div>
     </div>`;
   }).join('');
+}
+
+// ===== CALENDARIO (.ics) =====
+// Tutte le scadenze future (rispettando il filtro veicolo), oppure una sola: file .ics con promemoria
+// a 7 giorni e al giorno prima, da aprire con l'app Calendario (iPhone, Android, Google, Outlook).
+const DEVICE = deviceKind();
+const ANDROID_ALARM_NOTE = 'Su Google Calendar i promemoria del file .ics vengono ignorati: dopo l\'importazione impostali tu nell\'evento, oppure usa 📅 → "Google Calendar" sulla singola scadenza.';
+async function deliverICS(filename, text, title, okMsg) {
+  const how = await shareOrDownloadICS(filename, text, title);
+  if (how !== 'downloaded') return;
+  // iPhone senza condivisione di file: il download potrebbe non aprire nulla (soprattutto dalla Home)
+  if (DEVICE === 'ios') _showToast('📅 File creato. Se il Calendario non si apre: usa 📅 → "Google Calendar" sulla singola scadenza, oppure apri GarageOS in Safari.', 'yellow');
+  else _showToast(okMsg);
+}
+function exportDeadlinesICS() {
+  const vid = document.getElementById('scad-filter-vehicle').value;
+  const events = deadlineEvents(data.vehicles, { vehicleId: vid });
+  if (!events.length) { _showToast('Nessuna scadenza futura da aggiungere al calendario', 'yellow'); return; }
+  const v = vid && data.vehicles.find(x => x.id === vid);
+  deliverICS(icsFilename('scadenze', v ? v.plate : '', localToday()), buildICS(events), 'Scadenze GarageOS',
+    `📅 ${events.length} ${events.length === 1 ? 'scadenza' : 'scadenze'}: apri il file per aggiungerle al calendario`);
+}
+function exportOneDeadlineICS(vid, kind) {
+  const v = data.vehicles.find(x => x.id === vid);
+  if (!v || !v[kind]) return;
+  const e = deadlineEvent(v, kind);
+  closeModal('cal-modal');
+  deliverICS(icsFilename(kind, v.plate), buildICS([e], { calName: e.summary }), e.summary,
+    '📅 Apri il file per aggiungere la scadenza al calendario');
+}
+// 📅 su una scadenza: scelta tra Google Calendar (link) e file .ics (con i promemoria)
+function openCalendarChoice(vid, kind) {
+  const v = data.vehicles.find(x => x.id === vid);
+  if (!v || !v[kind]) return;
+  const e = deadlineEvent(v, kind);
+  document.getElementById('cal-title').textContent = `${e.summary} · ${formatDate(e.date)}`;
+  const g = document.getElementById('cal-google');
+  g.href = googleCalendarUrl(e);
+  const f = document.getElementById('cal-file');
+  f.dataset.id = vid; f.dataset.kind = kind;
+  f.textContent = DEVICE === 'ios' ? '📅 Calendario di iPhone (.ics)' : '📅 File .ics (iPhone, Outlook, altri)';
+  // su Android Google Calendar è la scelta naturale e va per prima; altrove prima il file con i promemoria
+  const box = document.getElementById('cal-options');
+  if (DEVICE === 'android') box.prepend(g); else box.prepend(f);
+  document.getElementById('cal-note').textContent = (DEVICE === 'android'
+    ? 'Google Calendar usa le tue notifiche predefinite per gli eventi "tutto il giorno": controllale nell\'evento. Il file .ics contiene due promemoria (7 giorni e 1 giorno prima), ma Google Calendar li ignora.'
+    : 'Il file .ics contiene due promemoria (alle 9:00 di 7 giorni prima e del giorno prima). Con Google Calendar valgono invece le tue notifiche predefinite.')
+    + ' Con "Google Calendar" titolo, targa e modello vengono inviati a Google (l\'importo no).';
+  openModal('cal-modal');
 }
 
 // ===== RENDER: PNEUMATICI =====
@@ -1530,6 +1584,9 @@ const ACTIONS = {
   'close-modal':      d => closeModal(d.modal),
   'csv-mechs':        () => exportMechsCSV(),
   'csv-tires':        () => exportTiresCSV(),
+  'ics-all':          () => exportDeadlinesICS(),
+  'ics-one':          d => exportOneDeadlineICS(d.id, d.kind),
+  'cal-choice':       d => openCalendarChoice(d.id, d.kind),
   'send-invite':      () => sendInvite(),
   'copy-link':        () => copyShareLink(),
   'revoke-invite':    d => revokeInvite(d.id),
@@ -1559,6 +1616,12 @@ const CHANGES = {
 const NEEDS_GARAGE = new Set(['fab', 'open-modal', 'save-vehicle', 'save-tire', 'save-mech', 'save-garage-name',
   'send-invite', 'revoke-invite', 'remove-member', 'remove-legacy', 'leave-garage', 'renew',
   'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech']);
+// Esc chiude la finestra aperta in primo piano (tutte le modali tranne la conferma, che ha i suoi pulsanti)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.modal-overlay.open')].pop();
+  if (open && open.id !== 'confirm-modal') closeModal(open.id);
+});
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;

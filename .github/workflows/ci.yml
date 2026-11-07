@@ -32,7 +32,7 @@ jobs:
       - name: PRECACHE del service worker completo (css/ e js/)
         run: node tools/check-precache.mjs
       - name: Unit test dei moduli puri
-        run: node --test tests/unit/modules.test.mjs
+        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs
       - name: VERSION del service worker incrementata (solo PR che toccano file dell'app)
         if: github.event_name == 'pull_request'
         run: |
@@ -107,6 +107,8 @@ jobs:
           python -m http.server 5173 --bind 127.0.0.1 >/dev/null 2>&1 &
           sleep 1
           node tests/e2e/csp.e2e.mjs
+      - name: Calendario .ics
+        run: node tests/e2e/calendar.e2e.mjs
       - name: Service worker e offline
         run: node tests/e2e/pwa.e2e.mjs
       - name: Aggiornamento dalla versione in produzione

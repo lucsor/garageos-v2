@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.4.1] — in preparazione (branch `feat/v2.4-calendar`)
+### Novità
+- **Scadenze nel calendario:** nella scheda Scadenze, "📅 Calendario" scarica un file `.ics` con tutte le scadenze future (bollo, revisione, assicurazione) dei veicoli attivi, rispettando il filtro per veicolo; il 📅 su ogni scadenza scarica solo quella. Ogni evento è "tutto il giorno" con due promemoria (alle 9:00 di 7 giorni prima e del giorno prima). Si apre con l'app Calendario di iPhone, Android, Google o Outlook. Tutto generato sul dispositivo: nessun dato inviato a server.
+- UID stabile per evento: reimportando il file, i calendari che lo supportano aggiornano l'evento invece di duplicarlo.
+
 ## [2.4.0] — in preparazione (branch `feat/v2.4-modules`)
 ### Sviluppo
 - **Moduli ES senza build:** `index.html` (solo markup) + `css/app.css` + `js/app.js` e i moduli puri `js/utils.js`, `js/csv.js`, `js/costs.js`. Nessuna modifica alla logica. CSP senza script inline (`script-src 'self'`): niente più hash da aggiornare.
