@@ -19,6 +19,7 @@
   niente più `list` sui garage; sottocollezioni ammesse solo `vehicles`, `tires`, `mechs`.
 
 ### Correzioni
+- **Login:** si passa al redirect solo se il popup non può aprirsi (`popup-blocked`, ambiente non supportato). Per gli altri errori compare un messaggio chiaro, ad esempio per la restrizione della chiave API o il dominio non autorizzato, e il pulsante resta. La schermata non resta più bloccata su "Accesso in corso…" se il redirect non porta un utente, e c'è un pulsante "Annulla".
 - **Membri coerenti:** `memberUids` (accesso) e `memberInfo` (profilo) si aggiornano insieme; solo il proprietario
   rimuove gli altri (in transazione), ognuno può uscire da solo ("Esci"). Se si perde l'accesso mentre l'app è aperta,
   si torna in automatico al garage personale.

@@ -17,6 +17,23 @@ Regole pubblicate fino a oggi: `docs/rules-backup/pre-v2.2.rules` (ruleset `d071
 
 ---
 
+## Prerequisito: restrizioni della chiave API (trovato il 2026-11-07)
+La chiave API del browser è ristretta per referrer e oggi ammette **solo `lucsor.github.io`**. Lo si vede inviando un `Referer` diverso a `identitytoolkit`.
+Manca **`garageos-879bc.firebaseapp.com`**, dove gira l'handler del login Google. Con la chiave così:
+- l'handler non riesce a verificare il dominio ("Unable to verify that the app domain is authorized");
+- **i nuovi login falliscono anche con la v2.1 in produzione**; funzionano solo le sessioni già salvate.
+
+Google Cloud Console → API e servizi → Credenziali → chiave "Browser key (auto created by Firebase)" → Restrizioni delle applicazioni → Siti web:
+- `https://lucsor.github.io/*` (già presente)
+- **`https://garageos-879bc.firebaseapp.com/*`** (da aggiungere, obbligatorio per il login)
+- `http://localhost:5173/*` (solo per il test locale; **da togliere** dopo)
+
+La propagazione richiede fino a ~5 minuti. Per verificare (in sola lettura):
+```sh
+curl -s -H "Referer: https://garageos-879bc.firebaseapp.com/" "https://identitytoolkit.googleapis.com/v1/projects?key=<apiKey>" | head -c 200
+```
+Se la risposta non contiene `error`, il referrer è ammesso.
+
 ## Sequenza
 
 | # | Azione | Comando | Verifica |
