@@ -6,6 +6,7 @@
 - **Etichette:** ogni etichetta delle finestre (veicolo, gomme, intervento, nome garage) è collegata al suo campo; i filtri, il campo email dell'invito e i pulsanti CSV hanno un nome accessibile; ✏️/🗑️ dicono cosa modificano o eliminano (es. "Elimina AB123CD"); la × dei tipi di intervento dice quale tipo rimuove. Le finestre hanno `role="dialog"` con titolo (come già Calendario e Promemoria); icone SVG decorative nascoste agli screen reader.
 - **Area di tocco ≥ 44 px** per ✏️/🗑️/📅, pulsanti piccoli, segmenti Meccanica/Pneumatici e "Copia", senza cambiarne l'aspetto (area invisibile attorno al pulsante); 32 px per la × dei tipi selezionati.
 - Focus visibile sui menu a tendina dei filtri; bordo di focus dei campi più contrastato.
+- **Primo disegno misurabile (P1):** l'animazione di comparsa parte da opacità 0,01 invece di 0. Invisibile a occhio, ma ora Lighthouse e Chrome registrano il First Contentful Paint (prima: errore NO_FCP).
 - Analisi completa e problemi rimanenti in `docs/QUALITA.md`.
 
 ## [2.5.1] — 2026-11-07
