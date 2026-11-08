@@ -1,0 +1,441 @@
+// Backup regole pubblicate — progetto garageos-879bc
+// ruleset: projects/garageos-879bc/rulesets/42869098-7e4b-47fb-a2ec-b38055a61d77
+// salvato: 2026-11-08T08:45:17.236Z
+rules_version = '2';
+// GarageOS — regole Firestore (hotfix sicurezza v2.2)
+// Test: tests/rules (npm test) — ogni modifica qui va accompagnata da test.
+//
+// Modello:
+//   users/{uid}                         puntatore al garage attivo
+//   garages/{gid}                       gid == uid del proprietario
+//     memberUids: string[]              FONTE DI VERITÀ per l'accesso
+//     memberInfo: { [uid]: {email,name,photo,joinedAt,inviteId} }  profilo dei membri (chiavi ⊆ memberUids)
+//     members: [...]                    LEGACY v1/v2.1 (solo lettura per i membri, il proprietario può ripulirlo)
+//     vehicles/{id}, tires/{id}, mechs/{id}
+//     deadlines/{id}                    scadenze personalizzate (v2.4): numeri veri e timestamp del server
+//     refuels/{id}                      rifornimenti (v2.6): numeri veri, timestamp del server, addedBy immutabile
+//     payments/{id}                     pagamenti delle scadenze personalizzate ("✅ Fatto", v2.6.1)
+//   invites/{token}                     token = 256 bit casuali in esadecimale, scadenza ≤ 7 giorni, uso singolo
+//   users/{uid}.push                    preferenze promemoria {enabled, days[], details}
+//   users/{uid}/pushTokens/{sha256}     token FCM dei dispositivi: SOLO il proprietario li vede
+//   pushLog/{id}                        registro degli invii: solo lo script di invio (Admin SDK)
+//   pushStatus/heartbeat                ultima esecuzione dello script: leggibile da chi ha fatto login
+//
+// Compatibilità con i dati esistenti: in UPDATE si validano solo i campi AGGIUNTI o MODIFICATI,
+// così un documento legacy con campi sconosciuti, null o valori fuori misura resta modificabile
+// finché quei campi non vengono toccati. In CREATE la validazione è completa.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ───────── helper generici ─────────
+    function signedIn() { return request.auth != null; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function verified() { return request.auth.token.email_verified == true; }
+    function gPath(gid) { return /databases/$(database)/documents/garages/$(gid); }
+    function iPath(token) { return /databases/$(database)/documents/invites/$(token); }
+
+    function isOwner(gid) { return signedIn() && request.auth.uid == gid; }
+    function isMember(gid) {
+      return isOwner(gid)
+        || (signedIn() && request.auth.uid in get(gPath(gid)).data.get('memberUids', []));
+    }
+
+    // ID generati da Firestore (20 car.) o legacy uid() della v1/v2.1 ([a-z0-9]); niente apici/virgolette
+    function validId(id) { return id is string && id.matches('^[A-Za-z0-9_-]{1,40}$'); }
+    function str(v, max) { return v is string && v.size() <= max; }
+    function reqStr(m, k, max) { return k in m && m[k] is string && m[k].size() > 0 && m[k].size() <= max; }
+    function optStr(m, k, max) { return !(k in m) || m[k] == null || str(m[k], max); }
+    // km/costi/anno: oggi stringhe (dati legacy), number dalla migrazione di Fase 4
+    function optNum(m, k) { return !(k in m) || m[k] == null || m[k] is number || str(m[k], 15); }
+    function optDate(m, k) {
+      return !(k in m) || m[k] == null || m[k] == ''
+        || (m[k] is string && m[k].matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'));
+    }
+    function optTs(m, k) { return !(k in m) || m[k] == null || m[k] is timestamp || str(m[k], 40); }
+    function optBool(m, k) { return !(k in m) || m[k] == null || m[k] is bool; }
+
+    // chiavi aggiunte o modificate da questa scrittura (le rimozioni non contano)
+    function touched() {
+      let d = request.resource.data.diff(resource.data);
+      return d.addedKeys().union(d.changedKeys());
+    }
+
+    // ───────── users ─────────
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, delete: if false;
+      allow create, update: if signedIn() && request.auth.uid == uid && validUser(uid, request.resource.data);
+
+      // Token push dei dispositivi. Nessuno, nemmeno gli altri membri del garage, legge i token altrui
+      // (anche le query collectionGroup sono negate: questa regola vale solo per il proprio percorso).
+      // L'ID è lo SHA-256 del token: un dispositivo = un documento, niente duplicati.
+      match /pushTokens/{tid} {
+        allow get, list, delete: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn() && request.auth.uid == uid
+          && validPushToken(tid, request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.lastSeenAt == request.time;
+        allow update: if signedIn() && request.auth.uid == uid
+          && validPushToken(tid, request.resource.data)
+          && request.resource.data.token == resource.data.token
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.lastSeenAt == request.time;
+      }
+    }
+    function validPushToken(tid, d) {
+      return d.keys().hasOnly(['token', 'platform', 'createdAt', 'lastSeenAt', 'appVersion'])
+        && d.keys().hasAll(['token', 'platform', 'createdAt', 'lastSeenAt'])
+        && d.token is string && d.token.size() > 0 && d.token.size() <= 4096
+        && hashing.sha256(d.token).toHexString().lower() == tid
+        && d.platform in ['ios', 'android', 'desktop']
+        && optStr(d, 'appVersion', 20);
+    }
+    // giorni di preavviso ammessi (la UI offre solo questi)
+    function pushDays() { return [0, 1, 2, 3, 5, 7, 10, 14, 15, 21, 30, 45, 60, 90]; }
+    function validPush(p) {
+      return p is map && p.keys().hasOnly(['enabled', 'days', 'details'])
+        && (!('enabled' in p) || p.enabled is bool)
+        && (!('details' in p) || p.details is bool)
+        && (!('days' in p) || (p.days is list && p.days.size() >= 1 && p.days.size() <= 5
+                               && p.days.toSet().hasOnly(pushDays())));
+    }
+
+    // ───────── promemoria: registro e stato dello script di invio ─────────
+    match /pushLog/{id} { allow read, write: if false; }
+    match /pushStatus/{id} {
+      allow get: if signedIn();                   // solo date ed esito, nessun dato personale
+      allow list, write: if false;
+    }
+
+    function validUser(uid, d) {
+      return d.keys().hasOnly(['garageId', 'email', 'name', 'updatedAt', 'push'])
+        && validId(d.garageId)
+        // si può puntare solo al proprio garage o a uno di cui si è membro (dopo questa scrittura)
+        && (d.garageId == uid || uid in getAfter(gPath(d.garageId)).data.get('memberUids', []))
+        && optStr(d, 'email', 254) && optStr(d, 'name', 100) && optTs(d, 'updatedAt')
+        && (!('push' in d) || validPush(d.push));
+    }
+
+    // ───────── garages ─────────
+    match /garages/{gid} {
+      allow get: if isMember(gid);
+      allow list: if false;                       // niente scansioni globali
+      allow create: if isOwner(gid) && validGarageCreate();
+      allow update: if ownerUpdate(gid) || memberLeave(gid) || inviteJoin(gid);
+      allow delete: if false;                     // nessuna UI la prevede: solo da console
+
+      match /vehicles/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && request.resource.data.keys().hasOnly(vehicleKeys())
+          && vehicleOk(request.resource.data, vehicleKeys());
+        allow update: if isMember(gid)
+          && touched().hasOnly(vehicleKeys())
+          && vehicleOk(request.resource.data, request.resource.data.diff(resource.data).affectedKeys());
+      }
+      match /tires/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && request.resource.data.keys().hasOnly(tireKeys())
+          && tireOk(request.resource.data, tireKeys());
+        allow update: if isMember(gid)
+          && touched().hasOnly(tireKeys())
+          && tireOk(request.resource.data, request.resource.data.diff(resource.data).affectedKeys());
+      }
+      match /mechs/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && request.resource.data.keys().hasOnly(mechKeys())
+          && mechOk(request.resource.data, mechKeys());
+        allow update: if isMember(gid)
+          && touched().hasOnly(mechKeys())
+          && mechOk(request.resource.data, request.resource.data.diff(resource.data).affectedKeys());
+      }
+      // Scadenze personalizzate (v2.4). Collezione NUOVA: niente dati legacy, quindi validazione completa
+      // anche in update (tutto il documento risultante), numeri come number, timestamp del server.
+      match /deadlines/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && deadlineOk(request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.addedBy == request.auth.token.email.lower();
+        allow update: if isMember(gid)
+          && deadlineOk(request.resource.data)
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.addedBy == resource.data.addedBy
+          && request.resource.data.updatedAt == request.time;
+      }
+      // Rifornimenti (v2.6): collezione nuova, nessun dato legacy → validazione COMPLETA anche in update.
+      // km/litri/importo solo numeri (mai stringhe), timestamp del server, addedBy = chi crea e immutabile.
+      match /refuels/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && refuelOk(request.resource.data)
+          && vehicleExists(gid, request.resource.data.vehicleId)
+          && request.resource.data.addedBy == myEmail()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isMember(gid)
+          && refuelOk(request.resource.data)
+          && (request.resource.data.vehicleId == resource.data.vehicleId
+              || vehicleExists(gid, request.resource.data.vehicleId))
+          && request.resource.data.addedBy == resource.data.addedBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+      }
+      // Pagamenti delle scadenze personalizzate (v2.6.1): registrati dal "✅ Fatto" con l'importo pagato.
+      // Restano anche se la scadenza viene tolta (storico delle spese). Collezione nuova: validazione completa.
+      match /payments/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && paymentOk(request.resource.data)
+          && request.resource.data.addedBy == myEmail()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isMember(gid)
+          && paymentOk(request.resource.data)
+          && request.resource.data.addedBy == resource.data.addedBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+      }
+      // qualunque altra sottocollezione: negata (default)
+    }
+
+    function validGarageCreate() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'ownerName', 'ownerEmail', 'ownerPhoto', 'garageName',
+                               'members', 'memberUids', 'memberInfo', 'createdAt'])
+        && d.ownerUid == request.auth.uid
+        && optStr(d, 'ownerName', 100) && optStr(d, 'ownerEmail', 254)
+        && optStr(d, 'ownerPhoto', 2048) && optStr(d, 'garageName', 40) && optTs(d, 'createdAt')
+        && d.get('memberUids', []) == []
+        && d.get('memberInfo', {}) == {}
+        && d.get('members', []) == [];
+    }
+
+    // Proprietario: può modificare il garage ma non cederlo; su memberUids può SOLO togliere
+    // (si entra esclusivamente tramite invito); memberInfo resta sempre ⊆ memberUids.
+    function ownerUpdate(gid) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let ks = touched();
+      return isOwner(gid)
+        && !('ownerUid' in after.diff(before).affectedKeys())
+        && ks.hasOnly(['ownerName', 'ownerEmail', 'ownerPhoto', 'garageName', 'members', 'memberUids', 'memberInfo'])
+        && (!('garageName' in ks) || optStr(after, 'garageName', 40))
+        && (!('ownerName' in ks) || optStr(after, 'ownerName', 100))
+        && (!('ownerEmail' in ks) || optStr(after, 'ownerEmail', 254))
+        && (!('ownerPhoto' in ks) || optStr(after, 'ownerPhoto', 2048))
+        && (!('members' in ks) || (after.members is list && after.members.size() <= 50))
+        && after.get('memberUids', []) is list
+        && before.get('memberUids', []).toSet().hasAll(after.get('memberUids', []))
+        && after.get('memberInfo', {}) is map
+        && after.get('memberInfo', {}).keys().hasOnly(after.get('memberUids', []));
+    }
+
+    // Membro: può togliere SOLO sé stesso (memberUids + il proprio memberInfo), nient'altro.
+    function memberLeave(gid) {
+      let uid = request.auth.uid;
+      let before = resource.data;
+      let after = request.resource.data;
+      let bu = before.get('memberUids', []);
+      return signedIn() && uid != gid && uid in bu
+        && after.diff(before).affectedKeys().hasOnly(['memberUids', 'memberInfo'])
+        && after.get('memberUids', []) == bu.removeAll([uid])
+        && !(uid in after.get('memberInfo', {}))
+        && after.get('memberInfo', {}).diff(before.get('memberInfo', {})).affectedKeys().hasOnly([uid]);
+    }
+
+    // Ingresso: solo aggiungendo sé stesso, con un invito valido consumato NELLO STESSO batch.
+    function inviteJoin(gid) {
+      let uid = request.auth.uid;
+      let before = resource.data;
+      let after = request.resource.data;
+      let bu = before.get('memberUids', []);
+      let info = after.get('memberInfo', {});
+      return signedIn() && verified() && uid != gid && !(uid in bu)
+        && bu.size() < 20
+        && after.diff(before).affectedKeys().hasOnly(['memberUids', 'memberInfo'])
+        && after.get('memberUids', []) == bu.concat([uid])
+        && uid in info
+        && info.diff(before.get('memberInfo', {})).affectedKeys().hasOnly([uid])
+        && validJoinInfo(info[uid], gid);
+    }
+    function validJoinInfo(m, gid) {
+      return m is map
+        && m.keys().hasOnly(['email', 'name', 'photo', 'joinedAt', 'inviteId'])
+        && m.email == myEmail()
+        && optStr(m, 'name', 100) && optStr(m, 'photo', 2048)
+        && m.joinedAt == request.time
+        && str(m.inviteId, 64) && m.inviteId.matches('^[a-f0-9]{64}$')
+        && inviteConsumedNow(m.inviteId, gid);
+    }
+    function inviteConsumedNow(token, gid) {
+      let inv = get(iPath(token)).data;            // stato PRIMA del batch
+      let invAfter = getAfter(iPath(token)).data;  // stato DOPO il batch
+      return inv.garageId == gid && inv.email == myEmail()
+        && inv.usedAt == null && inv.expiresAt > request.time
+        && invAfter.usedBy == request.auth.uid && invAfter.usedAt == request.time;
+    }
+
+    // ───────── invites ─────────
+    match /invites/{token} {
+      // il token è il segreto: GET puntuale solo per il proprietario o per l'email invitata;
+      // LIST solo per il proprietario e solo sui propri inviti (query where garageId == uid)
+      allow get: if signedIn() && (resource.data.garageId == request.auth.uid || resource.data.email == myEmail());
+      allow list: if signedIn() && resource.data.garageId == request.auth.uid;
+      allow create: if validInviteCreate(token);
+      allow update: if inviteConsume();
+      allow delete: if signedIn() && resource.data.garageId == request.auth.uid;   // revoca
+    }
+    function validInviteCreate(token) {
+      let d = request.resource.data;
+      return signedIn()
+        && token.matches('^[a-f0-9]{64}$')
+        && d.keys().hasOnly(['garageId', 'email', 'createdBy', 'createdAt', 'expiresAt',
+                             'usedAt', 'usedBy', 'garageName', 'invitedByName'])
+        && d.keys().hasAll(['garageId', 'email', 'createdBy', 'createdAt', 'expiresAt', 'usedAt', 'usedBy'])
+        && d.garageId == request.auth.uid && d.createdBy == request.auth.uid
+        && exists(gPath(request.auth.uid))
+        && str(d.email, 254) && d.email == d.email.lower()
+        && d.email.matches('^[^@ ]+@[^@ ]+[.][^@ ]+$')
+        && d.email != myEmail()
+        && d.createdAt == request.time
+        && d.expiresAt is timestamp
+        && d.expiresAt > request.time
+        && d.expiresAt <= request.time + duration.value(7, 'd')
+        && d.usedAt == null && d.usedBy == null
+        && optStr(d, 'garageName', 40) && optStr(d, 'invitedByName', 100);
+    }
+    function inviteConsume() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return signedIn() && verified()
+        && before.email == myEmail()
+        && before.usedAt == null && before.expiresAt > request.time
+        && after.diff(before).affectedKeys().hasOnly(['usedAt', 'usedBy'])
+        && after.usedAt == request.time && after.usedBy == request.auth.uid
+        // chi è già membro non può "bruciare" inviti
+        && !(request.auth.uid in get(gPath(before.garageId)).data.get('memberUids', []))
+        // si consuma solo entrando davvero nel garage nello stesso batch
+        && request.auth.uid in getAfter(gPath(before.garageId)).data.get('memberUids', []);
+    }
+
+    // ───────── scadenze personalizzate ─────────
+    function deadlineKinds() {
+      return ['tagliando', 'ztl', 'bollino', 'telepass', 'estintore', 'seggiolino', 'parcheggio',
+              'gomme', 'patente', 'altro'];
+    }
+    function deadlineOk(d) {
+      return d.keys().hasOnly(['kind', 'label', 'vehicleId', 'due', 'repeatMonths', 'cost', 'note',
+                               'createdAt', 'updatedAt', 'addedBy'])
+        && d.keys().hasAll(['kind', 'label', 'due', 'createdAt', 'updatedAt', 'addedBy'])
+        && d.kind in deadlineKinds()
+        && reqStr(d, 'label', 60)
+        && d.due is string && d.due.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('vehicleId' in d) || d.vehicleId == null || validId(d.vehicleId))
+        && (!('repeatMonths' in d) || d.repeatMonths == null
+            || (d.repeatMonths is int && d.repeatMonths >= 1 && d.repeatMonths <= 120))
+        && (!('cost' in d) || d.cost == null || (d.cost is number && d.cost >= 0 && d.cost <= 1000000))
+        && optStr(d, 'note', 500)
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && str(d.addedBy, 254);
+    }
+    // ───────── rifornimenti ─────────
+    // limiti: devono coincidere con LIMITS in js/fuel.js (verificato da tests/unit/fuel.test.mjs)
+    function refuelOk(d) {
+      return d.keys().hasOnly(['vehicleId', 'date', 'km', 'liters', 'amount', 'full', 'note',
+                               'addedBy', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['vehicleId', 'date', 'km', 'liters', 'amount', 'full',
+                            'addedBy', 'createdAt', 'updatedAt'])
+        && validId(d.vehicleId)
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (d.km == null || (d.km is int && d.km >= 0 && d.km <= 9999999))
+        && d.liters is number && d.liters > 0 && d.liters <= 500
+        && d.amount is number && d.amount >= 0 && d.amount <= 10000
+        && d.full is bool
+        && optStr(d, 'note', 200)
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && str(d.addedBy, 254);
+    }
+    // ───────── pagamenti delle scadenze ─────────
+    // limiti: devono coincidere con PAYMENT_LIMITS in js/fuel.js
+    function paymentOk(d) {
+      return d.keys().hasOnly(['deadlineId', 'kind', 'label', 'vehicleId', 'date', 'amount',
+                               'addedBy', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['deadlineId', 'kind', 'label', 'date', 'amount', 'addedBy', 'createdAt', 'updatedAt'])
+        && validId(d.deadlineId)
+        && d.kind in deadlineKinds()
+        && reqStr(d, 'label', 60)
+        && (!('vehicleId' in d) || d.vehicleId == null || validId(d.vehicleId))
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.amount is number && d.amount > 0 && d.amount <= 1000000
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && str(d.addedBy, 254);
+    }
+    function vehicleExists(gid, vid) {
+      return exists(/databases/$(database)/documents/garages/$(gid)/vehicles/$(vid));
+    }
+
+    // ───────── validazione documenti ─────────
+    // ks = chiavi da validare: tutte in create, solo quelle toccate in update
+    function vehicleKeys() {
+      return ['plate', 'model', 'type', 'year', 'km', 'kmDate', 'tagliandoInt',
+              'bollo', 'bolloCost', 'revisione', 'revisioneCost', 'assicurazione', 'assicurazioneCost',
+              'assicurazioneCompany', 'note', 'frozen', 'frozenAt', 'createdAt', 'addedBy', 'updatedAt'];
+    }
+    function vehicleOk(d, ks) {
+      return (!('plate' in ks) || reqStr(d, 'plate', 15))
+        && (!('model' in ks) || reqStr(d, 'model', 100))
+        && (!('type' in ks) || !('type' in d) || d.type == null || d.type in ['auto', 'moto', 'suv', 'furgone'])
+        && (!('year' in ks) || optNum(d, 'year'))
+        && (!('km' in ks) || optNum(d, 'km'))
+        && (!('kmDate' in ks) || optDate(d, 'kmDate'))
+        && (!('tagliandoInt' in ks) || optNum(d, 'tagliandoInt'))
+        && (!('bollo' in ks) || optDate(d, 'bollo'))
+        && (!('bolloCost' in ks) || optNum(d, 'bolloCost'))
+        && (!('revisione' in ks) || optDate(d, 'revisione'))
+        && (!('revisioneCost' in ks) || optNum(d, 'revisioneCost'))
+        && (!('assicurazione' in ks) || optDate(d, 'assicurazione'))
+        && (!('assicurazioneCost' in ks) || optNum(d, 'assicurazioneCost'))
+        && (!('assicurazioneCompany' in ks) || optStr(d, 'assicurazioneCompany', 100))
+        && (!('note' in ks) || optStr(d, 'note', 2000))
+        && (!('frozen' in ks) || optBool(d, 'frozen'))
+        && (!('frozenAt' in ks) || optTs(d, 'frozenAt'))
+        && (!('createdAt' in ks) || optTs(d, 'createdAt'))
+        && (!('updatedAt' in ks) || optTs(d, 'updatedAt'))
+        && (!('addedBy' in ks) || optStr(d, 'addedBy', 254));
+    }
+    function tireKeys() {
+      return ['vehicleId', 'season', 'date', 'km', 'kmNext', 'brand', 'size', 'note', 'createdAt', 'updatedAt'];
+    }
+    function tireOk(d, ks) {
+      return (!('vehicleId' in ks) || ('vehicleId' in d && validId(d.vehicleId)))
+        && (!('season' in ks) || ('season' in d && d.season in ['invernale', 'estivo', 'allseason']))
+        && (!('date' in ks) || optDate(d, 'date'))
+        && (!('km' in ks) || optNum(d, 'km'))
+        && (!('kmNext' in ks) || optNum(d, 'kmNext'))
+        && (!('brand' in ks) || optStr(d, 'brand', 60))
+        && (!('size' in ks) || optStr(d, 'size', 40))
+        && (!('note' in ks) || optStr(d, 'note', 2000))
+        && (!('createdAt' in ks) || optTs(d, 'createdAt'))
+        && (!('updatedAt' in ks) || optTs(d, 'updatedAt'));
+    }
+    function mechKeys() {
+      return ['vehicleId', 'type', 'date', 'km', 'cost', 'garage', 'note', 'createdAt', 'updatedAt', 'addedBy'];
+    }
+    function mechOk(d, ks) {
+      return (!('vehicleId' in ks) || ('vehicleId' in d && validId(d.vehicleId)))
+        && (!('type' in ks) || ('type' in d && d.type is string && d.type.matches('^[A-Za-z0-9_]{1,40}$')))
+        && (!('date' in ks) || optDate(d, 'date'))
+        && (!('km' in ks) || optNum(d, 'km'))
+        && (!('cost' in ks) || optNum(d, 'cost'))
+        && (!('garage' in ks) || optStr(d, 'garage', 100))
+        && (!('note' in ks) || optStr(d, 'note', 2000))
+        && (!('createdAt' in ks) || optTs(d, 'createdAt'))
+        && (!('updatedAt' in ks) || optTs(d, 'updatedAt'))
+        && (!('addedBy' in ks) || optStr(d, 'addedBy', 254));
+    }
+  }
+}

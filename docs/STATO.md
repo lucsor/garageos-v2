@@ -1,10 +1,10 @@
-# Stato del lavoro — aggiornato 2026-11-08 (pomeriggio)
+# Stato del lavoro — aggiornato 2026-11-08 (sera)
 
-> **In produzione: v2.6.0** (`main`), regole `e08c501a` (= `firestore.rules` di `main`).
+> **In produzione: v2.6.1** (`main` = `e75baa7`), regole `42869098` (= `firestore.rules` di `main`).
 > **Cosa ti serve fare:**
-> 1. **Pubblicare le regole di `payments`** (la PR #14 è pronta, CI verde, ma il deploy dalla mia sessione è stato bloccato dai permessi): comando in §3.1. Poi unisco la #14 e la verifico.
-> 2. **Rivedere lo script delle date** (§3.2) e dirmi se eseguirlo.
-> 3. Mandarmi l'esito delle prove dal telefono (ne è arrivato solo il segnaposto «[esito 1-7]»).
+> 1. Mandarmi l'esito delle prove dal telefono (§5), compreso «✅ Fatto» con il pagamento.
+> 2. Avvisare l'amico del veicolo con le date del vecchio bug (§3.2).
+> 3. Promemoria: dopo le mattine del 9, 10 e 11/11 ti mostro i conteggi (§3.3).
 
 ---
 
@@ -62,44 +62,29 @@ Scheda Spese (v2.6.0, prima dello spostamento in quinta posizione):
 
 ## 3. In corso e decisioni
 
-### 3.1 «✅ Fatto» registra il pagamento — PR #14 (v2.6.1), in attesa delle regole
-- Finestra con **importo pagato** precompilato dal costo previsto (modificabile) e **data** del pagamento (oggi). Vuoto = nessun pagamento.
-- Il pagamento va in `garages/{g}/payments` e conta nelle **Spese** (Scadenze) nell'anno del pagamento. Resta anche se la scadenza singola viene tolta; si cancella con il veicolo.
-  - Scelta: una collezione nuova e non un intervento (`mechs`), perché le scadenze di "tutto il garage" non hanno un veicolo e gli interventi lo richiedono.
-  - Oggi non c'è un'interfaccia per correggere un pagamento già registrato.
-- Test: regole 125/125 (PY01–PY05), unit 58/58, e2e scadenze (precompilazione, "1.500,5" respinto, importo modificato salvato come numero, visibile in Spese, nessun pagamento con importo vuoto, cascata), CI verde.
-- **Regole da pubblicare PRIMA del merge** (solo aggiunte; backup dati, Auth e regole già fatto alle 07:58). Dalla cartella del repo, sul branch `feat/fatto-pagamento`:
-  ```sh
-  git checkout feat/fatto-pagamento
-  npx firebase-tools deploy --only firestore:rules --project garageos-879bc
-  ```
-  Oppure dimmi «ok deploy regole #14» e consenti il comando quando te lo chiede. Rollback: `firebase.rollback.json` (→ `pre-v2.6.rules`) o la versione precedente in Console.
+### 3.1 «✅ Fatto» registra il pagamento — v2.6.1, IN PRODUZIONE
+- Prima le regole: deploy autorizzato da te. Il ruleset `42869098` ha lo sha256 `df6b9cae…`, identico a `firestore.rules` della #14. Backup fatto alle 07:58.
+- Poi il merge della **#14** (`e75baa7`, CI verde).
+- Verifica: SW e cache 2.6.1, finestra `dd-amount` servita, 0 errori in console, pagina e rete, 0 violazioni CSP. La prova con login è da fare dal telefono.
+- Funziona così:
+  - la finestra mostra l'importo pagato, precompilato dal costo previsto e modificabile, e la data del pagamento (oggi); vuoto = nessun pagamento;
+  - il pagamento va in `garages/{g}/payments` e conta in Spese (Scadenze) nell'anno del pagamento;
+  - resta anche se la scadenza singola viene tolta e si cancella con il veicolo;
+  - non c'è ancora un'interfaccia per correggerlo.
+- Rollback delle regole: `firebase.rollback.json` → `pre-v2.6.rules` (senza `deadlines`, `refuels` e `payments`: va usato insieme al revert dell'app), oppure la versione precedente `e08c501a` in Console.
 
-### 3.2 Date del vecchio bug — script pronto, NON eseguito
-- **Veicolo:** 1 solo, in un garage che non è il tuo (targa, proprietario e percorso nel file locale `date-vuote-20261108.txt`; il repo è pubblico). Bollo, revisione e assicurazione = 2026-04-12, il giorno in cui è stato creato.
-- Script `tools/admin/clear-bug-dates.mjs` (nella PR #14):
-  - è in dry-run di default; svuota solo bollo/revisione/assicurazione uguali al giorno di creazione (UTC o ora italiana);
-  - scrive `""` come fa l'app;
-  - in `--apply` usa una transazione che ricontrolla il valore, poi verifica il risultato;
-  - rifiuta `production` con l'emulatore attivo.
-- Collaudato sull'emulatore: dry-run, apply, secondo dry-run a 0.
-- **Dry-run in produzione** (sola lettura, 07:58): `1 veicoli, 3 campi da svuotare`: solo quel veicolo.
-- Per eseguirlo, dopo il tuo controllo:
-  ```sh
-  cd tools/admin && node clear-bug-dates.mjs --target production --only <percorso dal file locale> --apply
-  ```
-- Gli altri 4 veicoli con "km al" senza km non sono toccati: sono innocui.
+### 3.2 Date del vecchio bug — deciso: NON si esegue
+- È il veicolo di un amico: lo avvisi tu e lui le corregge dall'app (✏️ → svuota bollo, revisione e assicurazione se non sono vere).
+- Lo script `tools/admin/clear-bug-dates.mjs` resta nel repo, in dry-run di default. In produzione **non è mai stato eseguito con `--apply`**.
 
-### 3.3 Promemoria: solo a te per 3 mattine (deciso)
-- Resta tutto com'è: `REMINDERS_ALLOW_LIVE=yes`, `REMINDERS_ONLY_UID` = il tuo uid.
-- Le mattine da guardare sono il 9, il 10 e l'11/11, alle 06:17 UTC.
-- Poi ti mostro i conteggi dei log (utenti, dispositivi, notifiche, già inviati, errori, token rimossi) e decidiamo il passo 7.
-- **Nota:** stamattina il cron delle 06:17 non risulta partito (ci sono solo i due lanci manuali delle 07:43 e 07:44 UTC). Se manca anche domani, va controllato lo schedule di GitHub.
-- Per leggere i conteggi:
-  ```sh
-  gh run list --workflow reminders.yml --limit 5
-  gh run view <id> --log | grep -A12 "Promemoria 20"
-  ```
+### 3.3 Promemoria: solo a te per 3 mattine (deciso) — cron verificato
+- Resta tutto com'è: `REMINDERS_ALLOW_LIVE=yes`, `REMINDERS_ONLY_UID` = il tuo uid. Mattine 9, 10 e 11/11 alle 06:17 UTC; poi ti mostro i conteggi e decidiamo il passo 7.
+- **Verifica di oggi (08:46 UTC):**
+  - `reminders.yml` è su `main`, che è il branch di default. È entrato con il merge della #6 il 7/11 alle 18:47 UTC, quindi prima della prima occasione (8/11 06:17 UTC).
+  - Il cron `'17 6 * * *'` è valido. `gh workflow list` mostra «Promemoria scadenze» **active** (id 410578849), e il lancio manuale funziona.
+  - `gh run list --workflow "Promemoria scadenze" --limit 10` mostra solo i 2 lanci manuali (07:43 e 07:44 UTC). Nel repo ci sono **0 esecuzioni `schedule`** in assoluto.
+- **Conclusione:** la configurazione è corretta. La prima esecuzione pianificata è stata **saltata da GitHub**, non ritardata (dopo 2 h 30 non c'era niente). Succede soprattutto con le prime pianificazioni di un workflow nuovo e negli orari di carico. Non ho cambiato niente.
+- **Se salta anche domani (9/11):** aggiungo un secondo orario di riserva (es. `47 7 * * *`). Lo script è idempotente: il registro `pushLog` evita i doppioni e recupera le soglie saltate.
 
 ## 4. Problemi incontrati (onestamente)
 - **Niente prova con login in produzione.** L'estensione Claude in Chrome non era connessa: nessun browser collegato, e ti ho mandato una notifica.
