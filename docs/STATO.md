@@ -1,10 +1,10 @@
-# Stato del lavoro — aggiornato 2026-11-08
+# Stato del lavoro — aggiornato 2026-11-08 (pomeriggio)
 
-> **In produzione: v2.6.0** (`main` = `bc31619`), regole `e08c501a` (= `firestore.rules` di `main`).
+> **In produzione: v2.6.0** (`main`), regole `e08c501a` (= `firestore.rules` di `main`).
 > **Cosa ti serve fare:**
-> 1. Le prove dal telefono (§5). Io non ho potuto fare login in produzione: l'estensione di Chrome non era connessa (§4).
-> 2. Dimmi se la notifica di prova (passo 6) è arrivata. Poi decidi se aprire i promemoria a tutti (§3).
-> 3. Dai un'occhiata agli screenshot dei colori (§2). Se non ti piacciono li correggiamo.
+> 1. **Pubblicare le regole di `payments`** (la PR #14 è pronta, CI verde, ma il deploy dalla mia sessione è stato bloccato dai permessi): comando in §3.1. Poi unisco la #14 e la verifico.
+> 2. **Rivedere lo script delle date** (§3.2) e dirmi se eseguirlo.
+> 3. Mandarmi l'esito delle prove dal telefono (ne è arrivato solo il segnaposto «[esito 1-7]»).
 
 ---
 
@@ -60,15 +60,46 @@ Scheda Spese (v2.6.0, prima dello spostamento in quinta posizione):
 
 ![](screenshots/v2.6.0-spese-annue.png) ![](screenshots/v2.6.0-spese-rifornimenti.png)
 
-## 3. Decisioni che mi servono
-1. **Promemoria, apertura a tutti (passo 7).** Oggi il cron giornaliero (06:17 UTC) invia **davvero**, ma solo a te: `REMINDERS_ALLOW_LIVE=yes` e `REMINDERS_ONLY_UID` = il tuo uid.
-   - Per aprire a tutti: `gh variable delete REMINDERS_ONLY_UID`.
-   - Per tornare al dry-run: `gh variable delete REMINDERS_ALLOW_LIVE`.
-2. **Date riempite dal vecchio bug.** L'elenco è in `%USERPROFILE%\Documents\garageos-backup\date-vuote-20261108.txt`, fuori dal repo perché contiene targhe. Non ho modificato niente.
-   - **1 veicolo** ha bollo, revisione e assicurazione uguali al giorno di creazione: è il caso tipico del bug.
-   - **4 veicoli** hanno "km al" senza km: sono innocui.
-   - Correggerli a mano con ✏️, oppure lascio stare?
-3. **Pagamento delle scadenze personalizzate:** vuoi che il "✅ Fatto" registri un intervento con l'importo, come "✅ Rinnovata"? Così il pagamento resta nell'anno in cui avviene.
+## 3. In corso e decisioni
+
+### 3.1 «✅ Fatto» registra il pagamento — PR #14 (v2.6.1), in attesa delle regole
+- Finestra con **importo pagato** precompilato dal costo previsto (modificabile) e **data** del pagamento (oggi). Vuoto = nessun pagamento.
+- Il pagamento va in `garages/{g}/payments` e conta nelle **Spese** (Scadenze) nell'anno del pagamento. Resta anche se la scadenza singola viene tolta; si cancella con il veicolo.
+  - Scelta: una collezione nuova e non un intervento (`mechs`), perché le scadenze di "tutto il garage" non hanno un veicolo e gli interventi lo richiedono.
+  - Oggi non c'è un'interfaccia per correggere un pagamento già registrato.
+- Test: regole 125/125 (PY01–PY05), unit 58/58, e2e scadenze (precompilazione, "1.500,5" respinto, importo modificato salvato come numero, visibile in Spese, nessun pagamento con importo vuoto, cascata), CI verde.
+- **Regole da pubblicare PRIMA del merge** (solo aggiunte; backup dati, Auth e regole già fatto alle 07:58). Dalla cartella del repo, sul branch `feat/fatto-pagamento`:
+  ```sh
+  git checkout feat/fatto-pagamento
+  npx firebase-tools deploy --only firestore:rules --project garageos-879bc
+  ```
+  Oppure dimmi «ok deploy regole #14» e consenti il comando quando te lo chiede. Rollback: `firebase.rollback.json` (→ `pre-v2.6.rules`) o la versione precedente in Console.
+
+### 3.2 Date del vecchio bug — script pronto, NON eseguito
+- **Veicolo:** 1 solo, in un garage che non è il tuo (targa, proprietario e percorso nel file locale `date-vuote-20261108.txt`; il repo è pubblico). Bollo, revisione e assicurazione = 2026-04-12, il giorno in cui è stato creato.
+- Script `tools/admin/clear-bug-dates.mjs` (nella PR #14):
+  - è in dry-run di default; svuota solo bollo/revisione/assicurazione uguali al giorno di creazione (UTC o ora italiana);
+  - scrive `""` come fa l'app;
+  - in `--apply` usa una transazione che ricontrolla il valore, poi verifica il risultato;
+  - rifiuta `production` con l'emulatore attivo.
+- Collaudato sull'emulatore: dry-run, apply, secondo dry-run a 0.
+- **Dry-run in produzione** (sola lettura, 07:58): `1 veicoli, 3 campi da svuotare`: solo quel veicolo.
+- Per eseguirlo, dopo il tuo controllo:
+  ```sh
+  cd tools/admin && node clear-bug-dates.mjs --target production --only <percorso dal file locale> --apply
+  ```
+- Gli altri 4 veicoli con "km al" senza km non sono toccati: sono innocui.
+
+### 3.3 Promemoria: solo a te per 3 mattine (deciso)
+- Resta tutto com'è: `REMINDERS_ALLOW_LIVE=yes`, `REMINDERS_ONLY_UID` = il tuo uid.
+- Le mattine da guardare sono il 9, il 10 e l'11/11, alle 06:17 UTC.
+- Poi ti mostro i conteggi dei log (utenti, dispositivi, notifiche, già inviati, errori, token rimossi) e decidiamo il passo 7.
+- **Nota:** stamattina il cron delle 06:17 non risulta partito (ci sono solo i due lanci manuali delle 07:43 e 07:44 UTC). Se manca anche domani, va controllato lo schedule di GitHub.
+- Per leggere i conteggi:
+  ```sh
+  gh run list --workflow reminders.yml --limit 5
+  gh run view <id> --log | grep -A12 "Promemoria 20"
+  ```
 
 ## 4. Problemi incontrati (onestamente)
 - **Niente prova con login in produzione.** L'estensione Claude in Chrome non era connessa: nessun browser collegato, e ti ho mandato una notifica.
