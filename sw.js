@@ -22,6 +22,7 @@ const PRECACHE = [
   './js/ics.js',
   './js/push.js',
   './js/legacy-banner.js',
+  './js/deadlines.js',
   // SDK Firebase (URL versionati e immutabili, CORS aperto): senza questi l'app offline resta bianca
   FIREBASE_SDK + 'firebase-app.js',
   FIREBASE_SDK + 'firebase-firestore.js',

@@ -1,177 +1,174 @@
-# Stato del lavoro — aggiornato 2026-11-07, 16:00
+# Stato del lavoro — aggiornato 2026-11-07, 20:30
 
 > **Cosa ti serve fare, in ordine di priorità**
-> 1. **Rivedere la PR della v2.4 (moduli ES)**: aperta, non unita.
-> 2. **Prove dal telefono della v2.3** (§3.1): esito non ancora comunicato.
-> 3. Invitare francesco dalla scheda Famiglia.
->
-> Chiave API: ricontrollata alle 15:46, **a posto** (tutte le voci localhost bloccate; consentiti solo `lucsor.github.io` e `garageos-879bc.firebaseapp.com`).
-
-### Branch
-| Branch | Stato |
-|---|---|
-| `main` | v2.3.0 in produzione + CI (PR #3 unita) |
-| `feat/v2.4-modules` | PR aperta, **non unita**: moduli ES rigenerati da `main` aggiornato (output identico allo script) |
-| `feat/v2.4-calendar` | calendario/promemoria .ics, sopra i moduli |
-| `feat/v2.3.1-appcheck` | **congelato, non pubblicato** (vedi §3.2) |
-| `refactor/modules` | cancellato (superato da `feat/v2.4-modules`) |
+> 1. **Leggi prima la nota su #6 (§1):** la PR #6 era **già unita** (v2.5.1 in produzione) quando è arrivato "correggilo prima del merge della PR #6".
+> 2. **Passo 4 dei promemoria: puoi farlo ora.** La v2.5.1 è online: sul telefono, menu → 🔔 Promemoria → "Attiva su questo dispositivo" (§5). Poi dimmi l'esito e preparo il dry-run in produzione (passo 5).
+> 3. **Unisci #7 per prima** (correzione della CI di main). Con la protezione attiva, le altre PR dovranno essere aggiornate su main dopo ogni merge.
+> 4. Rivedi e decidi le PR in bozza (§2) e le decisioni in §3.
 
 ---
 
-## 1. Deploy v2.2 (passi 1-5): completato
+## 1. Cosa ho fatto in questo blocco
 
-| Passo | Esito | Dettagli |
+Regole rispettate: nessuna scrittura in produzione (Firestore, Auth, regole, chiave API, Pages), nessun merge su main, nessun deploy, PR solo in bozza. L'unica eccezione autorizzata è la protezione di main.
+
+**Nota su #6 (da leggere):** al tuo messaggio "ok passo 3, merge della PR #6" ho unito la #6 (merge `9fdc75e`, v2.5.1: promemoria + avviso "vecchia icona") e l'ho verificata in produzione:
+- banner di aggiornamento → una sola ricarica, SW 2.5.1, cache 2.4.1 rimossa;
+- Proprietario, 5 veicoli, menu Promemoria presente, 0 errori in console;
+- `?from=v1` mostra l'avviso e il parametro sparisce dall'URL.
+
+Il messaggio successivo ("correggi la ✗ prima del merge della #6") è arrivato **dopo** il merge. La ✗ non riguardava l'app (vedi punto 1), ma va detto: la #6 è entrata con il main ancora rosso per quel motivo.
+
+| # | Punto | Esito |
 |---|---|---|
-| Verifica preliminare | ✅ | Login Google reale su `localhost:5173`: Proprietario, Garage Soriente, 5 veicoli, **0 violazioni CSP** |
-| 1. Regole | ✅ | Le regole pubblicate erano ancora identiche a `pre-v2.2.rules` (`d071b7de`). Deploy di `firestore.rules` + indici → ruleset **`63f90b2e`**, uguale byte per byte a `firestore.rules` (copia in `docs/rules-backup/post-v2.2.rules`) |
-| 2. Migrazione | ✅ | Dry-run identico a quello approvato → apply → verifica → seconda esecuzione "Già migrato". Export prima e dopo (`~/Documents/garageos-backup/`): 73 → 75 documenti. **Cambiati solo** `memberUids` del tuo garage (+ alessandro, tiziana) e **creati solo** `users/` di alessandro e di tiziana |
-| 3. App v2.2 | ✅ | PR [lucsor/garageos-v2#1](https://github.com/lucsor/garageos-v2/pull/1) → merge `e864c6f` → Pages build verde, `sw.js` 2.2.0 online |
-| 4. Verifica in produzione | ✅ | v2.2 servita (CSP presente), banner "Nuova versione" → SW 2.2.0 attivo; Proprietario, **5 veicoli, 3 membri** (tu, alessandro, tiziana), francesco come "vecchio formato"; **0 violazioni CSP**, 0 errori |
-| 5. Redirect v1 | ✅ | PR [lucsor/garageOS#1](https://github.com/lucsor/garageOS/pull/1) → merge `f395099` → online alle 13:09. Prova reale nel tuo browser: `lucsor.github.io/garageOS/` porta alla v2.2 già loggato; il vecchio SW v1 è stato rimosso, quello della v2 è intatto |
+| 1 | **CI rossa su main** | **Causa:** sui *push* su main lo step "Aggiornamento dalla versione in produzione" lanciava `upgrade.e2e.mjs origin/main`. Dopo il merge `origin/main` = HEAD, quindi la versione non cambia, il banner non compare e il test fallisce. Era sbagliato il test, non l'app: è successo su #4, #5 e #6; sulle PR era sempre verde. **Correzione** in **#7** (bozza, CI verde): base = `origin/<base>` nelle PR, `HEAD^1` (main prima del merge) nei push; provato in locale 2.4.1 → 2.5.1. Nella #7 c'è anche la correzione di un test instabile mio (`legacy-banner.e2e`: il ping `apis.google.com/js/gen_204` di Google, bloccato dalla CSP, a volte faceva fallire la CI) |
+| — | **Protezione di main** | ✅ applicata (comando e output sotto) |
+| 2 | **Avviso "vecchia icona"** | ✅ già in produzione con la v2.5.1 (e2e in CI). La parte della v1 (`?from=v1`) è nella PR in bozza **lucsor/garageOS#2**, verificata con il vecchio SW v1 in cache: v2 in ~2,4 s, avviso visibile, parametro tolto, SW e cache v1 rimossi, cache v2 intatta. Funziona anche **senza** la #2: la v2 si apre comunque, solo senza avviso |
+| 3 | **F2 scadenze personalizzate** | ✅ **#10** (bozza, CI verde), v2.5.3. Dettagli in §2 |
+| 4 | **Rifornimenti e spese annue** | ✅ **#8** (bozza, CI verde), v2.6.0, fatta da un agente in un clone separato; ho ricontrollato io CI e regole |
+| 5 | **Qualità (Lighthouse)** | ✅ `docs/QUALITA.md` + quick win in **#9** (bozza, CI verde), v2.5.2, fatta da un agente; ho ricontrollato io la CI e il confronto visivo |
+| 6 | **Migrazione km/importi (dry-run)** | ✅ su una **copia** del backup `firestore-20261107-1205.json` nell'emulatore: **66 documenti, 159 campi** (104 convertibili + 55 vuoti → null), **0 ambigui** |
 
-### 1.1 Anomalie viste (nessuna bloccante)
-- **Errore "insufficient permissions" sul listener degli inviti** nel minuto successivo al deploy delle regole: era la propagazione. Dopo un ricaricamento alle 13:05 è sparito.
-- **`users/<tuo uid>.updatedAt` cambiato.** L'ha riscritto la **v2.1** di produzione quando l'ho aperta per la diagnosi del login (12:47): la v2.1 riscrive quel campo a ogni apertura. È innocuo.
-- **Il secondo export di oggi aveva sovrascritto quello del mattino** (stesso nome file). Il contenuto era equivalente, perché nel frattempo non c'erano state scritture. Ora gli export hanno data e ora nel nome e non sovrascrivono mai (commit `cff366c`).
-- **Il problema di login era nella chiave API, non nel codice**, e riguardava già la v2.1: mancava `garageos-879bc.firebaseapp.com`. L'hai sistemato tu prima del deploy.
-
-### 1.2 Server e schede
-Server su `5173` spento, emulatori spenti, schede di test chiuse. Nessun processo locale in ascolto.
-
-### 1.3 Testo da mandare agli amici (copia e incolla)
-> Ciao! GarageOS ha un nuovo indirizzo: **https://lucsor.github.io/garageos-v2/**
-> Accedi con lo stesso account Google di prima: trovi già i tuoi veicoli. Il vecchio link ti ci porta da solo.
-> Se avevi l'app sulla schermata Home, aprila dal nuovo indirizzo e aggiungila di nuovo (Condividi → "Aggiungi a Home" su iPhone, menu ⋮ → "Installa app" su Android), poi elimina la vecchia icona.
-
-**Per lucoli76:** i due inviti in sospeso (martyoli06 e manunap77) vanno rifatti dalla scheda **Famiglia** della v2.2. I vecchi link non funzionano più.
-
----
-
-## 2. Lavoro in autonomia (solo branch locali ed emulatore)
-Nessuna scrittura in produzione, nessun push, nessun deploy.
-
-### 2.1 Branch
-| Branch | Base | Commit | Contenuto |
-|---|---|---|---|
-| `fix/v2.3` | `main` (`e864c6f`) | vedi `git rev-list --count main..fix/v2.3` | Fase 2 e 3 (documenti) + v2.3.0, review e correzioni |
-| `refactor/modules` | `fix/v2.3` al commit `4c53db6` (i 9 di lavoro, senza `STATO.md`) | 11 (9 + 2 del prototipo) | prototipo moduli ES (v2.4.0-modules) |
-
-Il repo locale ha `core.hooksPath = .githooks` (pre-commit hook attivo). La cartella di lavoro è su `fix/v2.3`. Il numero di commit non è più scritto qui (ogni commit di `STATO.md` lo renderebbe sbagliato): `git rev-list --count main..<branch>`.
-
-### 2.2 Fatto
-| # | Cosa | Dove | Test |
-|---|---|---|---|
-| Fase 2 | `docs/IDEE.md`: idee con valore, impegno, impatto Firestore e costi Spark/Blaze con alternative gratuite; modello dati v3 in Mermaid; roadmap MVP → v2.4 → v2.5 → v3 | `fix/v2.3` | — |
-| Fase 3 | `docs/PIANO.md`: task ordinati (sicurezza → bug → DB → funzionalità → UX), stimati e con stato | `fix/v2.3` | — |
-| B1 | SW: `activate` non cancella più `garageos-notif` né cache di altre app sulla stessa origine | `dc68841` | `pwa.e2e` ✔ |
-| B2 | SW: niente reload alla prima installazione; reload una sola volta all'aggiornamento richiesto. **Il test ha trovato un difetto nella mia prima versione**: il reload non scattava se installazione e aggiornamento avvenivano nella stessa sessione. Corretto prima del commit | `dc68841` | `pwa.e2e` ✔ |
-| D1 | **Offline:** SDK Firebase e font nella cache del SW + `persistentLocalCache` (multi-scheda) + indicatore "● Offline · dati locali" | `3406407` | `pwa.e2e` ✔ offline **vero**: server spento, rete e gstatic bloccati. L'app si apre, mostra i dati e accetta una modifica, che viene sincronizzata al ritorno online |
-| B3 | **Costi multi-tipo:** costo solo sul primo tipo, gli altri "incluso"; i totali deduplicano i vecchi gruppi con lo stesso costo ripetuto | `d774112` | `costs.e2e` ✔ sui **dati reali**: totali invariati; gruppo legacy 3×100 € contato una volta; nuovo intervento 3 tipi da 250 € → +250 € e non +750 € |
-| — | `reg.update()` offline non genera più un errore non gestito | `dc68841` | trovato da `pwa.e2e` |
-| S3 | **Pre-commit hook:** hash CSP della versione **in staging** + bump di `VERSION` del SW | `056acff` | collaudato in un clone usa e getta su 4 scenari |
-| D2 | **Migrazione km/importi/anno → number**, solo script | `7b9e97a` | **solo dry-run, sull'emulatore** con i dati del backup: **66 documenti, 159 campi, 0 ambigui**. Non eseguita da nessuna parte |
-| U4 | Prototipo moduli ES | `refactor/modules` | vedi §4 |
-
-**Regressione su `fix/v2.3`:** regole 92/92 · dati reali 17/17 · e2e CSP ✔ · e2e primo avvio ✔ (lucoli76 trova il suo garage) · e2e costi ✔ · e2e PWA/offline ✔.
-
-**Dato utile sui costi:** nei dati reali ci sono 6 interventi multi-tipo (32 documenti), **tutti senza costo**. Il bug non ha mai gonfiato un totale: era latente.
-
-### 2.3 Non fatto (di proposito)
-- **Modello dati di km e importi:** non toccato, come chiesto. Il client scrive ancora stringhe. La migrazione va fatta **dopo** il task D3 (ordine in `PIANO.md`).
-- **Timestamp lato server (D4):** solo pianificato.
-- Nessun aggiornamento della v1 oltre al redirect; nessuna modifica alla chiave API né alle regole.
-
----
-
-## 3. Decisioni prese (2026-11-07 sera) e cosa ne segue
-
-| # | Decisione | Stato |
-|---|---|---|
-| 1 | **v2.3: sì**, dopo una review indipendente | ✅ review fatta (nessun bloccante), correzioni applicate e testate (§3.1); push + PR + merge |
-| 2 | **Costi: (a) ora**, con "incluso" ben visibile; (c) `types[]` nella v3 | ✅ badge "incluso" + riga "🔗 Costo già conteggiato in «tipo»", anche in `costs.e2e` |
-| 3 | **Moduli ES:** primo passo della v2.4, dopo il deploy della v2.3 | ⏳ `refactor/modules` va ribasato su `main` dopo il merge |
-| 4 | **Java:** Temurin 21 con winget + README e script dei test | ✅ Temurin 21.0.13 installato (PATH e JAVA_HOME di sistema); `tools/check-java.mjs` prima di ogni suite; README aggiornato. Il JDK portabile non serve più |
-| 5 | **CI:** su un branch, mostrarti il diff | ⏳ branch `ci/github-actions` |
-| 6 | **v2.3.1:** App Check solo monitoraggio; pulizia `members[]` solo dopo un login alla v2 dei 3 amici | ⏳ §3.2 e §3.3 |
-| 7 | **Priorità v2.4:** moduli ES → calendario/promemoria (.ics) → rifornimenti e spese annue; **più garage per utente per ultimo** (v2.5) | ✅ riportato in `PIANO.md` |
-
-### 3.1 Review indipendente di `main..fix/v2.3`
-Fatta da un revisore separato senza le mie conclusioni. **Nessun bloccante.** Correzioni applicate:
-
-| Segnalazione | Correzione | Verifica |
-|---|---|---|
-| **Logout su dispositivo condiviso:** con la cache persistente i dati del garage restavano su disco dopo l'uscita | l'uscita svuota la cache Firestore (IndexedDB) e `garageos-notif`, poi ricarica; se ci sono modifiche non sincronizzate chiede conferma | `pwa.e2e`: dati presenti prima, assenti dopo il logout |
-| **Salvataggi offline:** la modale restava in caricamento (la promessa attende il server); il rinnovo scadenza scriveva solo il veicolo e la cancellazione di un veicolo si fermava a metà | dopo 2,5 s la scrittura è considerata "in coda" (avviso giallo), gli errori successivi vengono comunque mostrati; scritture parallele | `pwa.e2e`: la modale si chiude offline |
-| **`migrate-numbers`:** "1.500" sarebbe diventato 1,5 | separatore + 3 cifre = ambiguo, mai convertito | 14 casi limite; dry-run sui dati reali: **0 ambigui** (nessun valore con separatore delle migliaia) |
-| SW: `cache.put` di una risposta 206 | solo risposte 200 | — |
-
-I due nuovi controlli e2e **falliscono sul codice precedente** (provato), quindi non passano a vuoto.
-Non corretti, di proposito: casi limite dell'euristica dei costi (es. eliminando il documento che porta il costo, gli altri restano a 0); si risolvono con `types[]` nella v3. Il test PWA serve l'app dalla radice e non da `/garageos-v2/`: per questo la prova in produzione dopo il merge controlla scope e cache sul percorso reale.
-
-**Regressione dopo le correzioni:** regole 92/92 · dati reali 17/17 · e2e CSP ✔ · primo avvio ✔ · costi ✔ · PWA/offline ✔.
-
-**Da provare dal telefono dopo il merge** (Android/Chrome o iPhone/Safari, app già aperta almeno una volta in v2.2):
-1. **Aggiornamento:** apri l'app → compare il banner "Nuova versione" → toccalo → **una sola** ricarica, sei ancora loggato.
-2. **Offline:** apri l'app online una volta, poi modalità aereo → chiudi e riapri l'app: si apre, mostra i veicoli e l'indicatore "● Offline · dati locali".
-3. **Modifica offline:** sempre in modalità aereo aggiungi un intervento → la finestra si chiude con l'avviso giallo "Salvato sul dispositivo" → togli la modalità aereo → dopo qualche secondo l'indicatore torna "Sync", e l'intervento compare anche su un altro dispositivo.
-4. **Costi:** nuovo intervento con 2-3 tipi e un costo → in Officina il primo tipo ha il costo, gli altri il badge blu "incluso" e la riga "🔗 Costo già conteggiato in «…»"; il totale in Garage aumenta del costo una sola volta.
-5. **Logout:** esci e rientra → i dati si ricaricano (la cache locale era stata svuotata).
-
-### 3.2 App Check: rimandato (decisione del 2026-11-07)
-**Motivo:** reCAPTCHA Classic (v3) come provider di App Check in Firebase è deprecato, e il sostituto (reCAPTCHA Enterprise / Fraud Defense) richiede il piano **Blaze**. Restiamo su Spark, quindi niente App Check per ora.
-- Il branch `feat/v2.3.1-appcheck` resta **com'è, non pubblicato**: SDK App Check con import dinamico, CSP per reCAPTCHA, badge nascosto con attribuzione, test `appcheck.e2e.mjs`. La secret registrata in Console non ha effetti (enforcement spento, nessun client invia token).
-- **Alternativa futura, se si passa a Blaze:** Fraud Defense / reCAPTCHA Enterprise come provider. Dal branch basta cambiare il provider (`ReCaptchaEnterpriseProvider`) e la chiave, poi monitoraggio per qualche settimana prima dell'enforcement. Dopo i moduli ES il codice va spostato da `index.html` in `js/app.js`.
-- Intanto la protezione resta quella delle regole Firestore (accesso solo ai membri) e la restrizione della chiave API ai due domini.
-
-### 3.3 Pulizia dei `members[]` legacy: controllo in sola lettura
-Prerequisito: lucoli76, geom.milite e matulamichele devono aver usato la v2 almeno una volta.
+### Protezione di main: comando ed esito
 ```sh
-cd tools/admin && node check-v2-logins.mjs      # sola lettura, Firebase Auth + Firestore
+gh api -X PUT repos/lucsor/garageos-v2/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": { "strict": true, "contexts": [
+    "CSP e versione del service worker",
+    "Regole Firestore (emulatore)",
+    "E2E (CSP, PWA/offline) su emulatori" ] },
+  "enforce_admins": true,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
 ```
-Logica: dalle 13:09 del 2026-11-07 (redirect v1 online) la v1 non carica più Firebase, quindi un accesso o un rinnovo del token successivo viene dalla v2. "Certo" solo se avvenuto almeno 24 h dopo (una scheda v1 rimasta aperta può rinnovare il token per qualche ora). Esce con codice 0 solo quando tutti e tre risultano ✔.
+Esito (exit 0, estratto della risposta):
+```
+required_status_checks: strict=true, contexts=["CSP e versione del service worker","Regole Firestore (emulatore)","E2E (CSP, PWA/offline) su emulatori"]
+enforce_admins.enabled=true · allow_force_pushes.enabled=false · allow_deletions.enabled=false
+required_pull_request_reviews: (assente) · restrictions: (assente)
+```
 
-**Esito al 2026-11-07 14:45: ✖ nessuno dei tre ha ancora aperto la v2** (ultimi accessi tra giugno e ottobre). `members[]` legacy: 2 elementi nel garage di lucoli76, 0 negli altri due. Pulizia rimandata.
+Cosa comporta:
+- **CI verde obbligatoria anche per te** (`enforce_admins`), e il branch deve essere aggiornato con main (`strict`).
+- Niente force push né cancellazione di main.
+- Nessuna review obbligatoria: su un repo personale non potresti approvare le tue PR.
+- **"Solo tu fai merge":** il repo è personale e l'unico collaboratore è `lucsor` (admin), senza inviti in sospeso. Le restrizioni "chi può fare push" esistono solo per i repo di organizzazione.
+- In emergenza: Settings → Branches → modifica la regola.
+- Il primo tentativo era stato bloccato dai permessi di Claude Code; è riuscito dopo la tua autorizzazione esplicita.
 
----
+### Migrazione: dettaglio del dry-run
+| campo | convertibile | vuoto→null | ambiguo |
+|---|---|---|---|
+| mechs.cost | 14 | 38 | 0 |
+| mechs.km | 45 | 7 | 0 |
+| tires.km | 4 | 0 | 0 |
+| tires.kmNext | 4 | 0 | 0 |
+| vehicles.assicurazioneCost | 8 | 1 | 0 |
+| vehicles.bolloCost | 7 | 2 | 0 |
+| vehicles.km | 6 | 4 | 0 |
+| vehicles.revisioneCost | 7 | 2 | 0 |
+| vehicles.year | 9 | 1 | 0 |
 
-## 4. Moduli ES senza build: valutazione del prototipo (`refactor/modules`)
-
-**Cosa ho fatto.** Solo trasformazioni meccaniche, nessuna modifica alla logica:
-- `index.html` è passato da **2.635 a 401 righe** (solo markup);
-- CSS in **`css/app.css`** (530 righe), applicazione in **`js/app.js`** (1.597 righe);
-- funzioni pure in **`js/utils.js`** (escape, `safeImg`, date, tipi di intervento), **`js/csv.js`** (export con protezione dalle formule) e **`js/costs.js`** (deduplicazione dei costi).
-
-**Test:** tutti verdi.
-- e2e CSP, primo avvio, costi e PWA/offline: i moduli vengono serviti dalla cache del SW quando si è offline.
-- Regole e dati reali invariati.
-- **10 nuovi test unitari in Node** sui moduli puri, compreso il calcolo dei costi **sui dati reali del backup**. Prima non erano possibili: le funzioni stavano dentro uno script inline.
-
-**Pro**
-- **Niente più hash CSP:** non ci sono script inline, quindi `script-src 'self'`. Sparisce il rischio "hash dimenticato = app bianca in produzione", che oggi è il punto più fragile del deploy.
-- **Funzioni testabili in Node**, senza browser né emulatore: test rapidi sulla logica (costi, date, alert km, poi i consumi della v2.4).
-- **Diff e revisioni più leggibili:** CSS, logica e markup cambiano in file diversi.
-- **Nessun build step:** deploy invariato (Pages da `main`/root), nessun `npm` per chi modifica l'app.
-- Il browser mette in cache i file separatamente: se cambia solo il CSS, non si riscarica il JS.
-
-**Contro**
-- **La lista di precache del SW va aggiornata a mano** per ogni nuovo file JS. Se se ne dimentica uno, l'offline si rompe. Mitigazione: un test o un controllo nell'hook che confronti `js/*.js` con `PRECACHE` (½ ora).
-- **`app.js` resta un monolite da 1.600 righe** con stato condiviso (`data`, `garageId`, `isOwner`…). Per dividerlo davvero (render, azioni, auth, Firestore) serve un oggetto `state` esportato: è un refactor vero (~1 giorno) e non più meccanico.
-- Qualche richiesta HTTP in più (5 JS + 1 CSS): irrilevante con HTTP/2 e il precache.
-- I file importati non hanno SRI. Il rischio è uguale a oggi: sono same-origin e serviti da Pages.
-
-**Vite in alternativa?** Avrebbe senso solo con dipendenze npm (grafici, Tesseract) o se il precache manuale diventasse un problema. Costerebbe un deploy via GitHub Actions e `npm` per chiunque contribuisca. Oggi non serve.
-
-**Raccomandazione:** **adottare `refactor/modules` come prima cosa della v2.4**, dopo il merge della v2.3, perché è basato su di essa. Poi:
-1. aggiungere il controllo automatico `js/*.js` ↔ `PRECACHE`;
-2. estrarre lo stato in `js/state.js` e dividere `app.js` per aree (auth, Firestore, render, azioni), un'area per commit, con gli e2e come rete di sicurezza;
-3. rimandare Vite finché non serve una dipendenza npm.
+- Il backup originale è intatto: ho lavorato su una copia con lo stesso sha256.
+- Per provare l'idempotenza ho applicato la migrazione **solo all'emulatore**: un secondo dry-run dà 0 documenti. Poi ho svuotato l'emulatore.
+- **Limite:** il backup è di stamattina (12:05). Prima di eseguirla in produzione servono un nuovo export e un nuovo dry-run.
+- **Prerequisito invariato:** prima il client deve leggere e scrivere numeri (task D3 di `PIANO.md`).
 
 ---
 
-## 5. Come rilanciare i test
-Prerequisiti: Java 21 nel `PATH` (Temurin installato con winget, vedi README), `npm install` in `tests/rules`, `tests/e2e` e `tools/admin`. Per gli e2e servono anche gli emulatori e il server statico (vedi README).
+## 2. PR in bozza da rivedere
+
+| PR | Contenuto | Versione | CI | Note per la revisione |
+|---|---|---|---|---|
+| **#7** `fix/ci-upgrade-base` | correzione della CI di main + test instabile | — (solo test/CI) | ✅ | **da unire per prima** |
+| **#9** `fix/qualita-quick-wins` | accessibilità: contrasti AA, etichette, aree di tocco 44 px; `docs/QUALITA.md` | 2.5.2 | ✅ | **Cambia l'aspetto**: verde di pulsanti, importi e FAB più scuro, grigi un tono più scuri (confronto in `docs/QUALITA.md`). Lighthouse accessibilità 90 → 100 (mobile), 89 → 100 (desktop) |
+| **#10** `feat/f2-custom-deadlines` | scadenze personalizzate in lista, hero, avvisi, notifiche locali, .ics e promemoria push | 2.5.3 | ✅ | **Regole da pubblicare PRIMA.** Provato con le regole attuali: l'app funziona, il salvataggio dice "regole non aggiornate". ⚠️ Per un mio errore con `--amend`, il commit `713faff` "Merge main" contiene anche il codice; non ho riscritto la storia (il force push è stato bloccato): rivedi il diff della PR |
+| **#8** `feat/v2.6-rifornimenti` | rifornimenti (⛽ dalla scheda veicolo), consumi solo tra pieni, scheda "Spese" con grafico per anno e veicolo, 2 CSV | 2.6.0 | ✅ | **Regole da pubblicare PRIMA.** Progetto in `docs/v2.6.md` |
+| **garageOS#2** `feat/from-v1-param` | redirect della v1 con `?from=v1` | v1 | — | da unire quando vuoi: la v2.5.1 è già pronta |
+
+**Ordine di merge consigliato:** #7 → #9 → (regole F2 + rifornimenti in **un solo deploy**) → #10 → #8 → garageOS#2.
+- #8 e #10 andranno in conflitto su `firestore.rules`, `rules.test.mjs`, `sw.js` (VERSION), `CHANGELOG.md`, `ci.yml` e `app.js`. I conflitti sono semplici (si tengono entrambi i blocchi). Li risolvo io su un branch, dopo il tuo ok, con la regressione completa.
+- I numeri di versione si riallineano al merge.
+
+---
+
+## 3. Decisioni che mi servono (in ordine di priorità)
+
+1. **Ordine di merge** come in §2? E l'ok a un **deploy unico delle regole** (`deadlines` + `refuels`) prima di #10 e #8, con backup e procedura della v2.5?
+2. **#9, nuovi colori:** ok al verde più scuro e ai grigi più scuri (contrasto AA)? Alternativa: tenere `#21b57e` per i pulsanti grandi e scurire solo i testi piccoli.
+3. **Spese annue (#8), cosa conta come "pagato":** oggi solo gli interventi bollo/revisione (creati da "✅ Rinnovata" o a mano). I costi previsti del veicolo non si sommano.
+   - (a) Aggiungere "✅ Pagata" all'assicurazione?
+   - (b) Il "✅ Fatto" delle scadenze personalizzate deve registrare un pagamento?
+4. **Scheda "Spese"** come quinta voce in basso (#8), oppure rifornimenti dentro Officina?
+5. **Km del veicolo dai rifornimenti:** l'ultimo rifornimento deve aggiornare da solo i "km attuali"? Oggi no.
+6. **Bug preesistente:** `openModal` mette la data di oggi in ogni campo data vuoto. Un veicolo nuovo senza revisione o assicurazione riceve quindi la data di oggi e risulta "in scadenza oggi". Lo correggo (le date restano vuote)? Nella finestra di F2 l'ho già evitato.
+7. **Quick win P1 di `QUALITA.md`:** `@keyframes fadeIn` parte da `opacity: 0`, quindi Lighthouse non registra il primo disegno (NO_FCP). Una riga, invisibile: ok?
+8. `docs/f2-wip/` (bozze ormai integrate): posso eliminarla?
+
+---
+
+## 4. Problemi incontrati (onestamente)
+- **#6 unita prima del tuo "correggilo prima del merge"** (vedi §1).
+- **Commit di F2 mal suddiviso** (`713faff`): il contenuto è giusto, la storia no. Riscriverla richiederebbe un force push sul branch di lavoro, che i permessi di Claude Code hanno bloccato e che non ho aggirato.
+- **Agenti in worktree non disponibili** (la cartella del repo appartiene ad Administrators): gli agenti hanno lavorato in cloni separati nella scratchpad. Due worktree vuoti creati dal tentativo fallito li ho rimossi.
+- **La CI di main resta rossa** sui merge finché non entra la #7. L'ultimo run rosso è quello di `9fdc75e`, per la stessa causa.
+- **Il backup per la migrazione è di stamattina:** serve un export fresco prima di qualsiasi esecuzione reale.
+
+---
+
+## 5. Cosa provare dal telefono
+
+**Subito (v2.5.1 già online):**
+1. **Promemoria, passo 4:** menu → 🔔 Promemoria → "Attiva su questo dispositivo" → accetta il permesso; lascia i giorni 30/7/1 e "con dettagli". Su iPhone serve prima l'app sulla Home (iOS 16.4+). Dimmi se compare "attivo su questo dispositivo".
+   - Il cron di domattina (06:17 UTC) girerà in **dry-run**: manca `REMINDERS_ALLOW_LIVE`, quindi nessuna notifica partirà.
+2. **Avviso "vecchia icona"** (prima del merge di garageOS#2): apri in Chrome `https://lucsor.github.io/garageos-v2/?from=v1`.
+   - L'avviso compare e il parametro sparisce dall'indirizzo.
+   - "Installa" apre il prompt o mostra le istruzioni.
+   - "Ho capito" lo chiude per sempre su quel telefono.
+   - Nell'app installata dalla Home non deve comparire.
+3. **Vecchia icona v1** (dopo il merge di garageOS#2): toccala online → la v2 si apre con l'avviso.
+
+**Dopo i merge (per ogni PR):**
+- **#9:** colori leggibili alla luce del sole, pulsanti ✏️ 🗑️ facili da toccare; con TalkBack o VoiceOver i pulsanti a icona vengono letti ("Elimina AB123CD").
+- **#10 (dopo le regole):**
+  - Scadenze → **+** → "Permesso ZTL", veicolo, "Ogni anno", importo "80,50" → compare in lista e nel contatore.
+  - 📅 → Google Calendar o file .ics.
+  - "✅ Fatto" → la data avanza di un anno.
+  - Una scadenza di "Tutto il garage".
+  - Un membro della famiglia la vede.
+- **#8 (dopo le regole):**
+  - ⛽ dalla scheda veicolo: "38,5" litri e "62,40" €, Pieno.
+  - Poi un parziale e un altro pieno: compaiono km/l ed €/km.
+  - "1.500,5" va respinto.
+  - Km in calo → chiede conferma.
+  - Scheda Spese: grafico, anno, filtro, i due CSV aperti in Excel o Numbers come numeri.
+  - Offline → "Salvato sul dispositivo".
+
+---
+
+## 6. Le prossime 3 idee (miglior rapporto valore/impegno, da `IDEE.md`)
+Già fatti o in PR: .ics, promemoria push, scadenze personalizzate, rifornimenti e spese annue, accessibilità di base.
+
+| # | Idea | Valore | Impegno | Perché adesso |
+|---|---|---|---|---|
+| 1 | **"Chi se ne occupa"**: scadenza assegnata a un membro, promemoria push solo a lui | ★★ | **S** | Si appoggia a F2 e ai promemoria appena fatti: un campo `assignee` (uid ∈ `memberUids`, validato nelle regole) e un filtro nello script di invio. Toglie le notifiche "di tutti a tutti" in famiglia |
+| 2 | **Backup automatico settimanale** con GitHub Actions | ★★ | **S** | Su Spark non c'è l'export gestito e oggi i backup sono manuali. Si riusa la federazione senza chiavi dei promemoria (sola lettura) e si cifra l'output (age) come artifact privato. Serve una chiave di cifratura che tieni tu |
+| 3 | **Più garage per utente** (il proprio più quelli condivisi, con selettore) | ★★★ | M | Risolve un limite reale: chi accetta un invito perde la vista sul proprio garage. Era già la tua scelta per la v2.5 "per ultimo"; ora che le funzioni base ci sono, è il prossimo passo di valore |
+
+Alternative a basso impegno, se preferisci: dark mode (S) ed export JSON del garage (S).
+
+---
+
+## 7. Come rilanciare i test
+Prerequisiti: Java 21, `npm ci` in `tests/rules`, `tests/e2e`, `tools/admin`; emulatori `auth,firestore --project garageos-879bc`; app su `http://127.0.0.1:5173` (`python -m http.server 5173 --bind 127.0.0.1`).
 ```sh
-cd tests/rules && npm test && npm run test:prod-data
-node --test tests/unit/modules.test.mjs          # solo su refactor/modules
-cd tests/e2e && npm run test:csp && node first-open.e2e.mjs && node costs.e2e.mjs && node pwa.e2e.mjs
+node --test tests/unit/*.test.mjs
+cd tests/rules && npm test                    # oppure, con emulatori già avviati: FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node --test rules.test.mjs
+cd tests/e2e && node csp.e2e.mjs && node calendar.e2e.mjs && node legacy-banner.e2e.mjs && node push.e2e.mjs \
+  && node pwa.e2e.mjs && node reminders.emu.mjs && node upgrade.e2e.mjs origin/main
+node tests/e2e/v1-redirect.e2e.mjs <clone di lucsor/garageOS> [ref della v1] [no-param]   # manuale
 ```

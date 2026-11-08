@@ -29,6 +29,22 @@ export function vehicleDeadlines(vehicles = []) {
   return out;
 }
 
+// Scadenze personalizzate (garages/{g}/deadlines, F2). Escluse quelle dei veicoli congelati.
+// key per documento: dopo "Fatto" su una ricorrente cambia la data e le soglie ripartono.
+// Senza veicolo: "Garage" al posto della targa.
+export function customDeadlines(custom = [], vehicles = []) {
+  const byId = new Map(vehicles.map((v) => [v.id, v]));
+  const out = [];
+  for (const d of custom) {
+    if (!isDate(d.due)) continue;
+    const v = d.vehicleId ? byId.get(d.vehicleId) : null;
+    if (d.vehicleId && (!v || v.frozen)) continue;   // veicolo congelato o eliminato
+    const label = String(d.label || '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Scadenza';
+    out.push({ key: `d:${d.id}`, date: d.due, label, plate: v ? String(v.plate || '').slice(0, 15) : 'Garage' });
+  }
+  return out;
+}
+
 export function normalizePrefs(push) {
   const days = Array.isArray(push?.days) && push.days.length
     ? [...new Set(push.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 90))].sort((a, b) => a - b)

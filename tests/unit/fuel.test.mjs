@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   parseDecimal, parseKm, toNum, refuelFromForm, sortRefuels, consumption, spendingRows, totalsByYear,
-  refuelCsvRows, spendingCsvRows, csvNum, fmtNum, yearOf, LIMITS,
+  refuelCsvRows, spendingCsvRows, csvNum, fmtNum, yearOf, LIMITS, deadlineExtras,
 } from '../../js/fuel.js';
+import { collectDeadlines } from '../../js/deadlines.js';
 
 const r = (id, date, km, liters, amount, full = true, extra = {}) => ({ id, vehicleId: 'v1', date, km, liters, amount, full, ...extra });
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -212,4 +213,30 @@ test('i limiti del client coincidono con quelli di firestore.rules', () => {
   assert.match(fn, new RegExp(`d\\.liters <= ${LIMITS.litersMax}\\b`));
   assert.match(fn, new RegExp(`d\\.amount <= ${LIMITS.amountMax}\\b`));
   assert.match(fn, new RegExp(`optStr\\(d, 'note', ${LIMITS.noteMax}\\)`));
+});
+
+test('"pagato" = tutto ciò che ha un importo: scadenze dei veicoli e personalizzate nell’anno della loro data', () => {
+  const vehicles = [
+    { id: 'v1', plate: 'AB123CD', bollo: '2026-11-20', bolloCost: 250, revisione: '2027-03-01', revisioneCost: '79,02',
+      assicurazione: '2026-12-01', assicurazioneCost: 600 },
+    { id: 'v2', plate: 'SOSP', frozen: true, bollo: '2026-05-01', bolloCost: 100 },                  // sospeso: escluso
+    { id: 'v3', plate: 'NOCOST', bollo: '2026-05-01', revisione: '', assicurazioneCost: 300 },       // senza importo o data: niente
+  ];
+  const deadlines = [
+    { id: 'd1', kind: 'ztl', label: 'ZTL', vehicleId: 'v1', due: '2027-01-15', cost: 80.5 },
+    { id: 'd2', kind: 'patente', label: 'Patente', vehicleId: null, due: '2028-06-01', cost: 120 },   // tutto il garage
+    { id: 'd3', kind: 'altro', label: 'Senza importo', vehicleId: 'v1', due: '2026-12-24', cost: null },
+  ];
+  // bollo 2026 già pagato a mano (intervento "Bollo" nello stesso anno) → la scadenza del veicolo non si conta due volte
+  const mechs = [{ id: 'm1', vehicleId: 'v1', type: 'bollo', date: '2026-11-10', cost: 250 }];
+  const extras = deadlineExtras(collectDeadlines(vehicles, deadlines), mechs);
+  const key = (e) => `${e.vehicleId}|${e.date}|${e.amount}`;
+  assert.deepEqual(extras.map(key).sort(), ['v1|2026-12-01|600', 'v1|2027-01-15|80.5', 'v1|2027-03-01|79.02', '|2028-06-01|120'].sort());
+  const { rows } = spendingRows({ mechs, refuels: [r('f1', '2026-10-01', 1000, 40, 70)], extras });
+  const years = totalsByYear(rows);
+  assert.deepEqual(years.map((y) => [y.year, y.scadenze, y.carburante, y.total]),
+    [[2026, 850, 70, 920], [2027, 159.52, 0, 159.52], [2028, 120, 0, 120]]);
+  assert.ok(rows.some((x) => x.year === 2028 && x.vehicleId === ''), 'scadenza di tutto il garage: riga senza veicolo');
+  // importo legacy ambiguo ("1.500") ignorato, come nell'inserimento
+  assert.equal(deadlineExtras(collectDeadlines([{ id: 'v9', assicurazione: '2026-01-01', assicurazioneCost: '1.500' }], [])).length, 0);
 });

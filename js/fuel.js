@@ -4,8 +4,9 @@ import { mechCostInfo } from './costs.js';
 
 // Limiti: devono coincidere con refuelOk() in firestore.rules
 export const LIMITS = { kmMax: 9999999, litersMax: 500, amountMax: 10000, noteMax: 200 };
-// Tipi di intervento che rappresentano una scadenza PAGATA (creati da "✅ Rinnovata" o inseriti a mano)
-export const PAID_DEADLINE_TYPES = ['bollo', 'revisione'];
+// Tipi di intervento che corrispondono a una scadenza del veicolo (creati da "✅ Rinnovata" o inseriti a mano):
+// finiscono nella categoria "scadenze" invece che "interventi"
+export const PAID_DEADLINE_TYPES = ['bollo', 'revisione', 'assicurazione'];
 // Intervallo plausibile di consumo (km/l): fuori da qui un tratto è quasi certamente un errore di km o litri
 export const PLAUSIBLE_KML = [1, 100];
 
@@ -142,12 +143,12 @@ export function consumption(refuels) {
 }
 
 // ===== SPESE ANNUE =====
-// Voci di spesa per anno e veicolo. Categorie:
+// "Pagato" = tutto ciò che ha un importo inserito, contato nell'anno della SUA data (decisione del 2026-11-08):
 //  - interventi: costi degli interventi (mechs), deduplicati con mechCostInfo (gruppi multi-tipo);
-//  - scadenze:   interventi di tipo bollo/revisione (il "✅ Rinnovata" li registra con il costo) + voci `extras`;
+//  - scadenze:   interventi di tipo bollo/revisione/assicurazione + voci `extras` (scadenze con importo:
+//                bollo/revisione/assicurazione del veicolo alla loro data, scadenze personalizzate alla data `due`);
 //  - carburante: importi dei rifornimenti.
-// `extras` è l'aggancio per le scadenze personalizzate (F2) o altre spese: [{ vehicleId, date, amount, category }]
-// con category in CATEGORIES (default 'scadenze').
+// `extras`: [{ vehicleId, date, amount, category }] con category in CATEGORIES (default 'scadenze'); vedi deadlineExtras().
 export const CATEGORIES = ['interventi', 'scadenze', 'carburante'];
 export const yearOf = (date) => (typeof date === 'string' && /^\d{4}-/.test(date) ? Number(date.slice(0, 4)) : null);
 
@@ -177,6 +178,25 @@ export function spendingRows({ mechs = [], refuels = [], extras = [] } = {}) {
   }));
   list.sort((a, b) => a.year - b.year || a.vehicleId.localeCompare(b.vehicleId));
   return { rows: list, undated: round(undated, 2) };
+}
+// Scadenze con importo → voci di spesa (extras). `items` = collectDeadlines(vehicles, deadlines) di js/deadlines.js
+// (veicoli sospesi già esclusi). Ogni scadenza conta UNA volta, nell'anno della sua data (la prossima: quelle già
+// passate e rinnovate restano solo come interventi). Doppio conteggio evitato: una scadenza del veicolo NON conta se
+// nello stesso anno lo stesso veicolo ha già un intervento dello stesso tipo (es. bollo pagato a mano).
+export function deadlineExtras(items = [], mechs = []) {
+  const paid = new Set(mechs.filter((m) => PAID_DEADLINE_TYPES.includes(m.type) && yearOf(m.date) !== null)
+    .map((m) => `${m.vehicleId}|${m.type}|${yearOf(m.date)}`));
+  const out = [];
+  for (const it of items) {
+    // importi legacy come stringa: al massimo 2 decimali ("1.500" è ambiguo → ignorato, come nell'inserimento)
+    const amount = typeof it.cost === 'string' ? parseDecimal(it.cost, 2) : toNum(it.cost);
+    const year = yearOf(it.date);
+    if (!(amount > 0) || year === null) continue;
+    const vehicleId = it.vehicle?.id || '';
+    if (it.source === 'vehicle' && paid.has(`${vehicleId}|${it.kind}|${year}`)) continue;
+    out.push({ vehicleId, date: it.date, amount, category: 'scadenze' });
+  }
+  return out;
 }
 // Totali per anno (eventualmente di un solo veicolo), in ordine cronologico
 export function totalsByYear(rows, vehicleId = '') {
@@ -210,7 +230,7 @@ export function refuelCsvRows(refuels, vehicleLabel = (id) => id) {
   return rows;
 }
 export function spendingCsvRows(rows, vehicleLabel = (id) => id) {
-  const out = [['Anno', 'Veicolo', 'Interventi (€)', 'Scadenze pagate (€)', 'Carburante (€)', 'Totale (€)', 'Litri']];
+  const out = [['Anno', 'Veicolo', 'Interventi (€)', 'Scadenze (€)', 'Carburante (€)', 'Totale (€)', 'Litri']];
   for (const r of rows) out.push([String(r.year), vehicleLabel(r.vehicleId), csvNum(r.interventi), csvNum(r.scadenze), csvNum(r.carburante), csvNum(r.total), csvNum(r.liters)]);
   return out;
 }

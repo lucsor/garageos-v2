@@ -55,7 +55,8 @@ const validDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
   && new Date(s + 'T00:00:00Z').toISOString().slice(0, 10) === s;
 
 // Scadenze dei veicoli attivi (non "congelati"), da oggi in avanti, ordinate per data.
-export function deadlineEvents(vehicles, { today = localToday(), vehicleId = '' } = {}) {
+// custom = scadenze personalizzate (garages/{g}/deadlines, F2): { id, kind, label, vehicleId|null, due, cost, … }
+export function deadlineEvents(vehicles, { today = localToday(), vehicleId = '', custom = [], icons = {} } = {}) {
   const events = [];
   for (const v of vehicles || []) {
     if (v.frozen || (vehicleId && v.id !== vehicleId)) continue;
@@ -65,7 +66,33 @@ export function deadlineEvents(vehicles, { today = localToday(), vehicleId = '' 
       events.push(deadlineEvent(v, kind));
     }
   }
+  const byId = new Map((vehicles || []).map((v) => [v.id, v]));
+  for (const d of custom || []) {
+    const v = d.vehicleId ? byId.get(d.vehicleId) || null : null;
+    if (v?.frozen || (vehicleId && d.vehicleId !== vehicleId)) continue;
+    if (!validDate(d.due) || d.due < today) continue;
+    events.push(customDeadlineEvent(d, v, icons[d.kind]));
+  }
   return events.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Scadenza personalizzata: UID per documento, senza la data (come per i veicoli: "Fatto" su una
+// ricorrente sposta l'evento invece di duplicarlo nei calendari che gestiscono gli aggiornamenti).
+export function customDeadlineEvent(d, v = null, icon = '📌') {
+  const where = v ? `${v.model || ''} (${v.plate || ''})`.trim() : 'Tutto il garage';
+  const lines = [where];
+  if (d.note) lines.push(String(d.note));
+  if (typeof d.cost === 'number' && d.cost > 0) lines.push(`Importo previsto: € ${d.cost}`);
+  lines.push('Promemoria creato da GarageOS: https://lucsor.github.io/garageos-v2/');
+  const label = String(d.label || '').trim() || 'Scadenza';
+  return {
+    uid: `dl-${d.id}@garageos`,
+    date: d.due,
+    summary: `${icon || '📌'} ${label}${v?.plate ? ' — ' + v.plate : ''}`,
+    description: lines.join('\n'),
+    publicDetails: lines.filter((l) => !l.startsWith('Importo') && l !== String(d.note || '')).join('\n'),   // Google: niente importo né note
+    reminderLabel: `${label}${v?.plate ? ' ' + v.plate : ''}`,
+  };
 }
 
 export function deadlineEvent(v, kind) {

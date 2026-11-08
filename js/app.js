@@ -15,10 +15,12 @@ import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechTyp
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
 import { refuelFromForm, sortRefuels, consumption, spendingRows, totalsByYear, refuelCsvRows, spendingCsvRows,
-  toNum, csvNum, fmtNum, fmtEuro, CATEGORIES } from './fuel.js';
+  toNum, parseKm, csvNum, fmtNum, fmtEuro, CATEGORIES, deadlineExtras } from './fuel.js';
 import { createPush, DAY_OPTIONS } from './push.js';
 import { initLegacyBanner } from './legacy-banner.js';
-import { deadlineEvents, deadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
+import { deadlineEvents, deadlineEvent, customDeadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
+import { DEADLINE_KINDS, REPEAT_OPTIONS, deadlineKind, collectDeadlines, advanceDue, deadlineFromForm } from './deadlines.js';
+const KIND_ICONS = Object.fromEntries(DEADLINE_KINDS.map(k => [k.id, k.icon]));
 
 // ===== FIREBASE CONFIG =====
 const firebaseConfig = {
@@ -63,7 +65,7 @@ let currentTab  = 'garage';
 let currentSubTab = 'meccanica';
 let currentSpeseSub = 'rifornimenti';
 const emptyData = () => ({
-  vehicles: [], tires: [], mechs: [], refuels: [], refuelsError: '',
+  vehicles: [], tires: [], mechs: [], deadlines: [], refuels: [], refuelsError: '',
   memberUids: [], memberInfo: {}, legacyMembers: [], invites: [],
   garageOwner: null, garageName: '',
 });
@@ -104,8 +106,8 @@ function _showToast(msg, color = 'green') {
     document.body.appendChild(t);
   }
   t.textContent = msg;
-  t.style.background = color === 'red' ? 'var(--red)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green)';
-  t.style.color = '#fff';
+  t.style.background = color === 'red' ? 'var(--red)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green-strong)';
+  t.style.color = color === 'yellow' ? 'var(--ink)' : '#fff';   // bianco su giallo: 2.2:1 → testo scuro
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3200);
@@ -488,9 +490,19 @@ function startListeners() {
     },
     onListenError
   );
+  // scadenze personalizzate (F2): un errore qui (es. regole non ancora pubblicate) non deve bloccare il resto
+  const u6 = onSnapshot(
+    query(collection(db, base + '/deadlines'), orderBy('due')),
+    snap => {
+      data.deadlines = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderAll();
+      saveDeadlineSnapshot().then(() => triggerDeadlineCheck());
+    },
+    err => { console.warn('deadlines:', err.code || err.message); data.deadlines = []; renderAll(); }
+  );
   // Rifornimenti (v2.6): un errore qui (es. regole non ancora pubblicate) NON significa accesso perso al garage
   // (lo decide il listener del garage): niente handleLostAccess, solo un avviso nella scheda Spese.
-  const u6 = onSnapshot(
+  const u7 = onSnapshot(
     query(collection(db, base + '/refuels'), orderBy('date', 'desc')),
     snap => { data.refuels = snap.docs.map(d => ({ id: d.id, ...d.data() })); data.refuelsError = ''; renderAll(); },
     err => {
@@ -499,7 +511,7 @@ function startListeners() {
       renderAll();
     }
   );
-  _unsubscribers = [u1, u2, u3, u4, u6];
+  _unsubscribers = [u1, u2, u3, u4, u6, u7];
   if (isOwner) {
     const u5 = onSnapshot(
       query(collection(db, 'invites'), where('garageId', '==', garageId)),
@@ -551,6 +563,7 @@ async function removeVehicle(id) {
     ...data.tires.filter(t => t.vehicleId === id).map(t => deleteDoc(vDoc('tires', t.id))),
     ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
     ...data.refuels.filter(r => r.vehicleId === id).map(r => deleteDoc(vDoc('refuels', r.id))),
+    ...data.deadlines.filter(d => d.vehicleId === id).map(d => deleteDoc(vDoc('deadlines', d.id))),
   ]);
 }
 async function removeTire(id) { await deleteDoc(vDoc('tires', id)); }
@@ -720,12 +733,12 @@ function exportTiresCSV() {
 // ===== NOTIFICHE =====
 async function saveDeadlineSnapshot() {
   try {
-    const deadlines = [];
-    data.vehicles.filter(v => !v.frozen).forEach(v => {
-      if (v.bollo) deadlines.push({ plate: v.plate, label: 'Bollo', date: v.bollo });
-      if (v.revisione) deadlines.push({ plate: v.plate, label: 'Revisione', date: v.revisione });
-      if (v.assicurazione) deadlines.push({ plate: v.plate, label: 'Assicurazione', date: v.assicurazione });
-    });
+    // veicoli + scadenze personalizzate (senza veicolo: "Garage" al posto della targa)
+    const deadlines = collectDeadlines(data.vehicles, data.deadlines).map(it => ({
+      plate: it.vehicle ? it.vehicle.plate : 'Garage',
+      label: it.source === 'vehicle' ? ({ bollo: 'Bollo', revisione: 'Revisione', assicurazione: 'Assicurazione' })[it.kind] : it.label,
+      date: it.date,
+    }));
     const cache = await caches.open('garageos-notif');
     const prev = await cache.match('notif-data');
     const lastNotified = prev ? ((await prev.json()).lastNotified || 0) : 0;
@@ -823,7 +836,7 @@ function updateSelectedTags() {
   wrap.innerHTML = _selectedMechTypes.map(id => {
     const t = getMechType(id);
     return `<span class="mech-selected-tag">${esc(t.icon)} ${esc(t.label)}
-      <button type="button" data-action="toggle-mech-type" data-type="${esc(id)}" title="Rimuovi">×</button></span>`;
+      <button type="button" data-action="toggle-mech-type" data-type="${esc(id)}" title="Rimuovi" aria-label="Rimuovi ${esc(t.label)}">×</button></span>`;
   }).join('');
 }
 
@@ -846,9 +859,15 @@ function openModal(id) {
       buildMechTypeGrid([]);
     }
   }
-  const today = new Date().toISOString().split('T')[0];
-  m.querySelectorAll('input[type="date"]').forEach(inp => { if (!inp.value) inp.value = today; });
+  // Solo la data di un intervento o di un cambio gomme parte da oggi. Le altre date (bollo, revisione, assicurazione,
+  // km al…, scadenze personalizzate) restano VUOTE: prima ogni data vuota diventava "oggi", e un veicolo salvato
+  // senza revisione/assicurazione risultava "in scadenza oggi" (bug corretto in v2.6.0).
+  for (const fid of TODAY_DEFAULT_DATES) {
+    const inp = m.querySelector('#' + fid);
+    if (inp && !inp.value) inp.value = localToday();
+  }
 }
+const TODAY_DEFAULT_DATES = ['m-date', 't-date'];
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   if (id === 'vehicle-modal') {
@@ -952,13 +971,102 @@ function switchSubTab(name) {
 
 function updateFab() {
   const fab = document.getElementById('fab');
-  const show = currentTab === 'garage' || currentTab === 'officina' || currentTab === 'spese';
+  const show = currentTab === 'garage' || currentTab === 'officina' || currentTab === 'scadenze' || currentTab === 'spese';
   fab.classList.toggle('show', show);
+  fab.setAttribute('aria-label', currentTab === 'spese' ? 'Nuovo rifornimento' : currentTab === 'scadenze' ? 'Nuova scadenza' : currentTab === 'officina' ? 'Nuovo intervento' : 'Nuovo veicolo');
 }
 function fabAction() {
   if (currentTab === 'garage') openModal('vehicle-modal');
   else if (currentTab === 'officina') openModal(currentSubTab === 'meccanica' ? 'mech-modal' : 'tire-modal');
   else if (currentTab === 'spese') openRefuel(document.getElementById('fuel-filter-vehicle').value);
+  else if (currentTab === 'scadenze') openDeadlineModal();
+}
+
+// ===== SCADENZE PERSONALIZZATE (F2: garages/{g}/deadlines) =====
+function openDeadlineModal(id = '') {
+  const d = id ? data.deadlines.find(x => x.id === id) : null;
+  if (id && !d) return;
+  const kindSel = document.getElementById('d-kind');
+  kindSel.innerHTML = DEADLINE_KINDS.map(k => `<option value="${esc(k.id)}">${k.icon} ${esc(k.label)}</option>`).join('');
+  const vSel = document.getElementById('d-vehicle');
+  vSel.innerHTML = '<option value="">🏠 Tutto il garage</option>' +
+    data.vehicles.filter(v => !v.frozen || v.id === d?.vehicleId)
+      .map(v => `<option value="${esc(v.id)}">${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
+  document.getElementById('d-repeat').innerHTML = REPEAT_OPTIONS
+    .map(r => `<option value="${r.months ?? ''}">${esc(r.label)}</option>`).join('');
+  const filterV = document.getElementById('scad-filter-vehicle').value;
+  document.getElementById('d-edit-id').value = d ? d.id : '';
+  kindSel.value = d ? deadlineKind(d.kind).id : 'tagliando';
+  document.getElementById('d-label').value = d ? d.label : deadlineKind(kindSel.value).label;
+  document.getElementById('d-label').dataset.auto = d ? '' : '1';
+  vSel.value = d ? (d.vehicleId || '') : filterV;
+  document.getElementById('d-due').value = d ? d.due : '';
+  document.getElementById('d-repeat').value = d && d.repeatMonths ? String(d.repeatMonths) : '';
+  document.getElementById('d-cost').value = d && typeof d.cost === 'number' ? String(d.cost) : '';
+  document.getElementById('d-note').value = d ? (d.note || '') : '';
+  document.getElementById('deadline-modal-title').textContent = d ? 'Modifica scadenza' : 'Nuova scadenza';
+  document.getElementById('btn-delete-deadline').style.display = d ? '' : 'none';
+  openModal('deadline-modal');
+}
+// cambiando tipo, la descrizione segue il tipo finché l'utente non l'ha scritta lui
+function onDeadlineKindChange() {
+  const label = document.getElementById('d-label');
+  const known = DEADLINE_KINDS.some(k => k.label === label.value);
+  if (label.dataset.auto === '1' || !label.value.trim() || known) {
+    label.value = deadlineKind(document.getElementById('d-kind').value).label;
+    label.dataset.auto = '1';
+  }
+}
+async function saveDeadline() {
+  const id = document.getElementById('d-edit-id').value;
+  const f = {
+    kind: document.getElementById('d-kind').value,
+    label: document.getElementById('d-label').value,
+    vehicleId: document.getElementById('d-vehicle').value,
+    due: document.getElementById('d-due').value,
+    repeatMonths: document.getElementById('d-repeat').value,
+    cost: document.getElementById('d-cost').value.trim(),
+    note: document.getElementById('d-note').value,
+  };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.due)) { _showToast('Inserisci la data di scadenza', 'red'); return; }
+  if (f.cost !== '' && !/^\d{1,7}([.,]\d{1,2})?$/.test(f.cost)) { _showToast('Importo non valido (es. 80 o 80,50)', 'red'); return; }
+  const doc_ = deadlineFromForm(f);
+  setButtonLoading('btn-save-deadline', true);
+  try {
+    const ref = vDoc('deadlines', id || newId('deadlines'));
+    if (id) await written(setDoc(ref, { ...doc_, updatedAt: serverTimestamp() }, { merge: true }));
+    else await written(setDoc(ref, { ...doc_, addedBy: (currentUser?.email || '').toLowerCase(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    closeModal('deadline-modal');
+    _showToast(id ? '✅ Scadenza aggiornata' : '✅ Scadenza aggiunta');
+  } catch(e) {
+    _showToast(e.code === 'permission-denied' ? 'Salvataggio non consentito: le regole del database non sono ancora aggiornate' : 'Errore: ' + (e.code || e.message), 'red');
+  } finally { setButtonLoading('btn-save-deadline', false); }
+}
+async function deleteDeadline() {
+  const id = document.getElementById('d-edit-id').value;
+  const d = data.deadlines.find(x => x.id === id);
+  if (!d || !await showConfirm(`Eliminare la scadenza "${d.label}"?`)) return;
+  try { await written(deleteDoc(vDoc('deadlines', id))); closeModal('deadline-modal'); _showToast('🗑️ Scadenza eliminata'); }
+  catch(e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
+}
+// "Fatto": ricorrente → prossima data (saltando i periodi già passati); singola → eliminata
+async function deadlineDone(id) {
+  const d = data.deadlines.find(x => x.id === id);
+  if (!d) return;
+  try {
+    if (d.repeatMonths) {
+      const today = localToday();
+      let next = advanceDue(d.due, d.repeatMonths);
+      for (let i = 0; next < today && i < 1200; i++) next = advanceDue(next, d.repeatMonths);
+      if (!await showConfirm(`Segnare "${d.label}" come fatta? Prossima scadenza: ${formatDate(next)}.`)) return;
+      await written(setDoc(vDoc('deadlines', id), { due: next, updatedAt: serverTimestamp() }, { merge: true }));
+      _showToast(`✅ Prossima scadenza ${formatDate(next)}`);
+    } else {
+      if (!await showConfirm(`Segnare "${d.label}" come fatta? Non si ripete: verrà tolta dall'elenco.`)) return;
+      await written(deleteDoc(vDoc('deadlines', id)));
+      _showToast('✅ Fatta');
+    }
+  } catch(e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
 }
 function switchSpeseSub(name) {
   currentSpeseSub = name;
@@ -1167,13 +1275,11 @@ function renderHeader() {
 
 function nextDeadline() {
   let best = null;
-  data.vehicles.filter(v => !v.frozen).forEach(v => {
-    [['Bollo', v.bollo], ['Revisione', v.revisione], ['Assicurazione', v.assicurazione]].forEach(([label, date]) => {
-      if (!date) return;
-      const d = daysUntil(date);
-      if (d === null) return;
-      if (!best || d < best.days) best = { days: d, label, plate: v.plate, date };
-    });
+  collectDeadlines(data.vehicles, data.deadlines).forEach(it => {
+    const d = daysUntil(it.date);
+    if (d === null) return;
+    const label = it.source === 'vehicle' ? ({ bollo: 'Bollo', revisione: 'Revisione', assicurazione: 'Assicurazione' })[it.kind] : it.label;
+    if (!best || d < best.days) best = { days: d, label, plate: it.vehicle ? it.vehicle.plate : 'Tutto il garage', date: it.date };
   });
   return best;
 }
@@ -1259,8 +1365,8 @@ function renderDashboard() {
             <span class="vc-plate">${esc(v.plate)}</span>
           </div>
           <div style="display:flex;gap:7px">
-            <button class="icon-btn" data-action="edit-vehicle" data-id="${esc(v.id)}" title="Modifica">✏️</button>
-            <button class="icon-btn danger" data-action="delete-vehicle" data-id="${esc(v.id)}" title="Elimina">🗑️</button>
+            <button class="icon-btn" data-action="edit-vehicle" data-id="${esc(v.id)}" title="Modifica" aria-label="Modifica ${esc(v.plate)}">✏️</button>
+            <button class="icon-btn danger" data-action="delete-vehicle" data-id="${esc(v.id)}" title="Elimina" aria-label="Elimina ${esc(v.plate)}">🗑️</button>
           </div>
         </div>
         <div class="vc-model">${esc(v.model)}</div>
@@ -1285,33 +1391,51 @@ function renderScadenze() {
   const list = document.getElementById('scadenze-list');
   sel.innerHTML = '<option value="">Tutti i veicoli</option>' +
     data.vehicles.map(v => `<option value="${esc(v.id)}" ${filterV === v.id ? 'selected' : ''}>${v.frozen ? '🧊 ' : ''}${esc(v.plate)} — ${esc(v.model)}</option>`).join('');
-  let items = [];
-  data.vehicles.filter(v => !v.frozen && (!filterV || v.id === filterV)).forEach(v => {
-    if (v.bollo) items.push({ vehicle: v, kind: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
-    if (v.revisione) items.push({ vehicle: v, kind: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
-    if (v.assicurazione) items.push({ vehicle: v, kind: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione ' + v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
-  });
+  const items = collectDeadlines(data.vehicles, data.deadlines, { vehicleId: filterV });
   document.getElementById('cal-android-note').textContent = DEVICE === 'android' ? ANDROID_ALARM_NOTE : '';
   let iosHintOff = false; try { iosHintOff = localStorage.getItem('garageos_ios_hint') === '1'; } catch {}
   document.getElementById('push-ios-hint').hidden = !(push.supportState() === 'ios-install' && !iosHintOff);
-  if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
-  items.sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.<br>Con <b>+</b> aggiungi tagliando, ZTL, abbonamenti, garanzie…</p></div>`; return; }
   const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
+  const textColors = { green: 'var(--green-ink)', yellow: 'var(--yellow-ink)', red: 'var(--red)' };   // testo: contrasto AA
   const softs = { green: 'var(--green-soft)', yellow: 'var(--yellow-soft)', red: 'var(--red-soft)' };
   list.innerHTML = items.map(item => {
     const days = daysUntil(item.date);
     const cls = badgeClass(days) || 'green';
     const daysText = days === null ? '?' : days < 0 ? 'SCADUTO' : days === 0 ? 'OGGI' : days + ' gg';
     const pct = days === null ? 100 : Math.max(3, Math.min(100, 100 - (days / 365) * 100));
-    return `<div class="scadenza-item">
+    if (item.source === 'custom') {
+      const dl = item.deadline;
+      const where = item.vehicle ? item.vehicle.plate : 'Tutto il garage';
+      const rep = REPEAT_OPTIONS.find(r => r.months === dl.repeatMonths);
+      const subParts = [item.vehicle ? item.vehicle.model : '', 'Scade: ' + formatDate(item.date), dl.repeatMonths ? '🔁 ' + (rep ? rep.label.toLowerCase() : `ogni ${dl.repeatMonths} mesi`) : ''].filter(Boolean);
+      return `<div class="scadenza-item">
       <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
       <div class="sc-info">
-        <div class="sc-title">${esc(item.label)} — ${esc(item.vehicle.plate)}${item.cost ? ` <span style="color:var(--green);font-size:13px">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
-        <div class="sc-sub">${esc(item.vehicle.model)} · Scade: ${esc(formatDate(item.date))}</div>
+        <div class="sc-title">${esc(item.label)} — ${esc(where)}${typeof item.cost === 'number' && item.cost > 0 ? ` <span style="color:var(--green);font-size:13px">· €${item.cost.toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-sub">${esc(subParts.join(' · '))}</div>
+        ${dl.note ? `<div class="sc-sub">${esc(dl.note)}</div>` : ''}
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+        <div style="display:flex;gap:6px">
+          ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(dl.id)}" data-kind="custom" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} al calendario">📅</button>` : ''}
+          <button class="icon-btn" data-action="edit-deadline" data-id="${esc(dl.id)}" title="Modifica" aria-label="Modifica ${esc(item.label)}">✏️</button>
+          <button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="deadline-done" data-id="${esc(dl.id)}">✅ Fatto</button>
+        </div>
+      </div>
+    </div>`;
+    }
+    return `<div class="scadenza-item">
+      <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
+      <div class="sc-info">
+        <div class="sc-title">${esc(item.label)} — ${esc(item.vehicle.plate)}${item.cost ? ` <span style="color:var(--green-ink);font-size:13px">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-sub">${esc(item.vehicle.model)} · Scade: ${esc(formatDate(item.date))}</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <div class="sc-days" style="color:${textColors[cls]}">${daysText}</div>
         <div style="display:flex;gap:6px">
           ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} ${esc(item.vehicle.plate)} al calendario">📅</button>` : ''}
           ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
@@ -1406,25 +1530,36 @@ async function deliverICS(filename, text, title, okMsg) {
 }
 function exportDeadlinesICS() {
   const vid = document.getElementById('scad-filter-vehicle').value;
-  const events = deadlineEvents(data.vehicles, { vehicleId: vid });
+  const events = deadlineEvents(data.vehicles, { vehicleId: vid, custom: data.deadlines, icons: KIND_ICONS });
   if (!events.length) { _showToast('Nessuna scadenza futura da aggiungere al calendario', 'yellow'); return; }
   const v = vid && data.vehicles.find(x => x.id === vid);
   deliverICS(icsFilename('scadenze', v ? v.plate : '', localToday()), buildICS(events), 'Scadenze GarageOS',
     `📅 ${events.length} ${events.length === 1 ? 'scadenza' : 'scadenze'}: apri il file per aggiungerle al calendario`);
 }
-function exportOneDeadlineICS(vid, kind) {
-  const v = data.vehicles.find(x => x.id === vid);
-  if (!v || !v[kind]) return;
-  const e = deadlineEvent(v, kind);
+// evento di una scadenza: del veicolo (id = veicolo, kind = bollo/…) o personalizzata (kind = 'custom', id = scadenza)
+function calEvent(id, kind) {
+  if (kind === 'custom') {
+    const d = data.deadlines.find(x => x.id === id);
+    if (!d) return null;
+    const v = d.vehicleId ? data.vehicles.find(x => x.id === d.vehicleId) || null : null;
+    return { e: customDeadlineEvent(d, v, KIND_ICONS[d.kind]), file: icsFilename(d.kind, v ? v.plate : 'garage') };
+  }
+  const v = data.vehicles.find(x => x.id === id);
+  if (!v || !v[kind]) return null;
+  return { e: deadlineEvent(v, kind), file: icsFilename(kind, v.plate) };
+}
+function exportOneDeadlineICS(id, kind) {
+  const c = calEvent(id, kind);
+  if (!c) return;
   closeModal('cal-modal');
-  deliverICS(icsFilename(kind, v.plate), buildICS([e], { calName: e.summary }), e.summary,
+  deliverICS(c.file, buildICS([c.e], { calName: c.e.summary }), c.e.summary,
     '📅 Apri il file per aggiungere la scadenza al calendario');
 }
 // 📅 su una scadenza: scelta tra Google Calendar (link) e file .ics (con i promemoria)
 function openCalendarChoice(vid, kind) {
-  const v = data.vehicles.find(x => x.id === vid);
-  if (!v || !v[kind]) return;
-  const e = deadlineEvent(v, kind);
+  const c = calEvent(vid, kind);
+  if (!c) return;
+  const e = c.e;
   document.getElementById('cal-title').textContent = `${e.summary} · ${formatDate(e.date)}`;
   const g = document.getElementById('cal-google');
   g.href = googleCalendarUrl(e);
@@ -1460,8 +1595,8 @@ function renderPneumatici() {
         <div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">${vLabel}</div></div>
         <span class="tire-season ${esc(t.season)}">${seasonLabel}</span>
         <div style="display:flex;gap:6px">
-          <button class="icon-btn" data-action="edit-tire" data-id="${esc(t.id)}" title="Modifica">✏️</button>
-          <button class="icon-btn danger" data-action="delete-tire" data-id="${esc(t.id)}" title="Elimina">🗑️</button>
+          <button class="icon-btn" data-action="edit-tire" data-id="${esc(t.id)}" title="Modifica" aria-label="Modifica cambio gomme ${esc(formatDate(t.date))}">✏️</button>
+          <button class="icon-btn danger" data-action="delete-tire" data-id="${esc(t.id)}" title="Elimina" aria-label="Elimina cambio gomme ${esc(formatDate(t.date))}">🗑️</button>
         </div>
       </div>
       <div class="tire-detail">📅 <strong>${esc(formatDate(t.date))}</strong>${t.km ? ' · ' + Number(t.km).toLocaleString('it-IT') + ' km' : ''}</div>
@@ -1492,8 +1627,8 @@ function mechItemHTML(m) {
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
       <div class="mech-cost">${ci?.included ? `<span class="badge incl" title="Costo già conteggiato in «${esc(payerLabel)}»">incluso</span>` : formatCurrency(m.cost)}</div>
       <div style="display:flex;gap:6px">
-        <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica">✏️</button>
-        <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina">🗑️</button>
+        <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica" aria-label="Modifica ${esc(mt.label)} ${esc(formatDate(m.date))}">✏️</button>
+        <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina" aria-label="Elimina ${esc(mt.label)} ${esc(formatDate(m.date))}">🗑️</button>
       </div>
     </div>
   </div>`;
@@ -1560,7 +1695,7 @@ function renderMeccanica() {
         <div class="year-header-left">
           <span class="year-label">${yr}</span>
           <span class="year-count">${items.length}</span>
-          ${isCurrentYear ? `<span style="font-size:11px;color:var(--green);font-weight:800">● in corso</span>` : ''}
+          ${isCurrentYear ? `<span style="font-size:11px;color:var(--green-ink);font-weight:800">● in corso</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:14px">
           ${yrCost > 0 ? `<span class="year-cost">€${yrCost.toLocaleString('it-IT')}</span>` : ''}
@@ -1618,6 +1753,23 @@ function showRefuelErrors(errors) {
   if (msgs.length) document.getElementById(REFUEL_FIELDS[Object.keys(errors)[0]])?.focus();
 }
 
+// L'ultimo rifornimento (per data) di un veicolo aggiorna i "km attuali" del veicolo, ma SOLO se i suoi km sono
+// maggiori di quelli registrati (mai all'indietro: un rifornimento vecchio inserito dopo non li tocca).
+// Km del veicolo illeggibili (dato legacy strano) → non si tocca nulla. Restituisce true se ha aggiornato.
+function refuelUpdatesVehicleKm(d, selfId) {
+  if (typeof d.km !== 'number') return false;
+  const v = data.vehicles.find(x => x.id === d.vehicleId);
+  if (!v) return false;
+  const newer = data.refuels.some(x => x.vehicleId === d.vehicleId && x.id !== selfId && String(x.date || '') > d.date);
+  if (newer) return false;
+  const raw = v.km;
+  const cur = raw === undefined || raw === null || raw === '' ? 0 : parseKm(raw);
+  if (!Number.isFinite(cur) || d.km <= cur) return false;
+  // niente await: la cache locale si aggiorna subito, offline verrà inviata col rifornimento (un solo avviso)
+  setDoc(vDoc('vehicles', v.id), { km: d.km, kmDate: d.date }, { merge: true })
+    .catch(e => _showToast('Km del veicolo non aggiornati: ' + (e.code || e.message), 'red'));
+  return true;
+}
 async function saveRefuel() {
   const editId = document.getElementById('r-edit-id').value;
   const existing = editId ? data.refuels.find(x => x.id === editId) : null;
@@ -1650,8 +1802,10 @@ async function saveRefuel() {
           ...d, addedBy: (currentUser?.email || '').toLowerCase(), createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         }));
     _lastRefuelVehicle = d.vehicleId;
+    const kmUpdated = refuelUpdatesVehicleKm(d, existing ? editId : '');
     closeModal('refuel-modal');
-    if (confirmed) _showToast(existing ? '✅ Rifornimento aggiornato' : '⛽ Rifornimento salvato');
+    if (confirmed) _showToast((existing ? '✅ Rifornimento aggiornato' : '⛽ Rifornimento salvato')
+      + (kmUpdated ? ` · km del veicolo: ${d.km.toLocaleString('it-IT')}` : ''));
   } catch(e) {
     _showToast(e.code === 'permission-denied'
       ? 'Rifornimento rifiutato dal server (regole non ancora aggiornate?)' : 'Errore: ' + (e.code || e.message), 'red');
@@ -1735,10 +1889,15 @@ function renderRifornimenti() {
 }
 
 // ===== SPESE ANNUE =====
-// Aggancio per le scadenze personalizzate (F2, garages/{g}/deadlines): qui andranno le scadenze PAGATE
-// come voci { vehicleId, date, amount, category: 'scadenze' }. Oggi nessuna (vedi docs/v2.6.md).
-function spendingExtras() { return []; }
-const CAT_LABEL = { interventi: 'Interventi', scadenze: 'Scadenze pagate', carburante: 'Carburante' };
+// Scadenze con importo (bollo/revisione/assicurazione dei veicoli e personalizzate), nell'anno della loro data
+function spendingExtras() { return deadlineExtras(collectDeadlines(data.vehicles, data.deadlines), data.mechs); }
+const CAT_LABEL = { interventi: 'Interventi', scadenze: 'Scadenze', carburante: 'Carburante' };
+// '' = scadenza di tutto il garage (F2, senza veicolo); id sconosciuto = veicolo eliminato
+const spendVehicleName = id => {
+  if (!id) return 'Garage (senza veicolo)';
+  const v = data.vehicles.find(x => x.id === id);
+  return v ? `${v.plate} — ${v.model}` : 'Veicolo rimosso';
+};
 const euro0 = n => '€ ' + Math.round(n).toLocaleString('it-IT');
 let _speseYear = null;
 function renderSpeseAnnue() {
@@ -1749,8 +1908,9 @@ function renderSpeseAnnue() {
   const body = document.getElementById('spese-body');
   const { rows, undated } = spendingRows({ mechs: data.mechs, refuels: data.refuels, extras: spendingExtras() });
   const years = totalsByYear(rows, fv);
-  const note = `<p class="cal-hint">Comprende: interventi (costi multi-tipo contati una volta), bollo e revisione segnati come pagati
-    (✅ Rinnovata o intervento "Bollo"/"Revisione"), carburante. <b>L'assicurazione non è compresa</b>: l'app non registra quando viene pagata.
+  const note = `<p class="cal-hint">Comprende tutto ciò che ha un importo, nell'anno della sua data: interventi (costi multi-tipo contati una volta),
+    rifornimenti, e scadenze con importo (bollo, revisione, assicurazione e scadenze personalizzate, alla data di scadenza: anche quelle future).
+    Una scadenza del veicolo non viene contata se nello stesso anno c'è già un intervento dello stesso tipo (es. "✅ Rinnovata").
     ${undated > 0 ? `Esclusi ${euro0(undated)} di interventi senza data.` : ''}</p>`;
   if (!years.length) {
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div><p>Nessuna spesa registrata.</p></div>` + note;
@@ -1778,15 +1938,16 @@ function renderSpeseAnnue() {
   // per veicolo, nell'anno scelto (solo con "Tutti i veicoli")
   if (!fv) {
     const allYears = years.map(y => y.year);
-    const year = allYears.includes(_speseYear) ? _speseYear : allYears[allYears.length - 1];
+    const thisYear = Number(localToday().slice(0, 4));
+    const year = allYears.includes(_speseYear) ? _speseYear
+      : allYears.includes(thisYear) ? thisYear : allYears.filter(y => y <= thisYear).pop() ?? allYears[0];
     const vrows = rows.filter(r => r.year === year && r.total > 0).sort((a, b) => b.total - a.total);
     const vmax = Math.max(...vrows.map(r => r.total), 1);
     html += `<div class="sp-veh"><div class="sp-veh-head"><div class="invite-title" style="margin:0">Per veicolo</div>
       <label class="sr-only" for="spese-year">Anno</label>
       <select class="filter-select" id="spese-year" data-change="spese-year">${[...allYears].reverse().map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></div>`
       + vrows.map(r => {
-        const v = data.vehicles.find(x => x.id === r.vehicleId);
-        const name = v ? `${esc(v.plate)} — ${esc(v.model)}` : 'Veicolo rimosso';
+        const name = esc(spendVehicleName(r.vehicleId));
         const w = (r.total / vmax) * 100;
         return `<div class="sp-row" data-vehicle="${esc(r.vehicleId)}"><div class="sp-row-top"><span>${name}</span><span>${esc(fmtEuro(r.total))}</span></div>
           <div class="sp-bar" style="width:${w.toFixed(2)}%">${CATEGORIES.filter(c => r[c] > 0).map(c => `<div class="sp-seg ${c}" style="width:${(r[c] / r.total * 100).toFixed(2)}%" title="${CAT_LABEL[c]}: ${esc(fmtEuro(r[c]))}"></div>`).join('')}</div></div>`;
@@ -1818,7 +1979,7 @@ function exportSpeseCSV() {
   const { rows } = spendingRows({ mechs: data.mechs, refuels: data.refuels, extras: spendingExtras() });
   const list = rows.filter(r => !fv || r.vehicleId === fv);
   if (!list.length) { _showToast('Nessuna spesa da esportare', 'yellow'); return; }
-  downloadCSV(`garageos-spese-annue-${localToday()}.csv`, spendingCsvRows(list, vehicleLabel));
+  downloadCSV(`garageos-spese-annue-${localToday()}.csv`, spendingCsvRows(list, id => id ? vehicleLabel(id) : 'Garage (senza veicolo)'));
   _showToast('⬇️ CSV spese annue scaricato');
 }
 
@@ -1827,7 +1988,7 @@ function renderFamiglia() {
   const grid = document.getElementById('family-grid');
   if (!grid) return;
   const owner = data.garageOwner;
-  const meTag = ' <span style="color:var(--green);font-size:11px">(tu)</span>';
+  const meTag = ' <span style="color:var(--green-ink);font-size:11px">(tu)</span>';
   const avatar = (photo, fallback = '👤') => safeImg(photo)
     ? `<img class="family-avatar" src="${esc(safeImg(photo))}" alt="" referrerpolicy="no-referrer">`
     : `<div class="family-avatar-placeholder">${fallback}</div>`;
@@ -1904,14 +2065,14 @@ function kmAlerts() {
 function renderNotifications() {
   const wrap = document.getElementById('notif-wrap');
   const chips = [];
-  data.vehicles.filter(v => !v.frozen).forEach(v => {
-    const checks = [['Bollo', daysUntil(v.bollo)], ['Revisione', daysUntil(v.revisione)], ['Assic.', daysUntil(v.assicurazione)]];
-    checks.forEach(([label, d]) => {
-      if (d !== null && d <= 30) chips.push({
-        cls: d <= 10 ? 'red' : 'yellow',
-        tab: 'scadenze',
-        text: `${esc(v.plate)} · ${label}: ${d <= 0 ? 'SCADUTO' : d + 'gg'}`
-      });
+  collectDeadlines(data.vehicles, data.deadlines).forEach(it => {
+    const d = daysUntil(it.date);
+    if (d === null || d > 30) return;
+    const label = it.source === 'vehicle' ? ({ bollo: 'Bollo', revisione: 'Revisione', assicurazione: 'Assic.' })[it.kind] : it.label;
+    chips.push({
+      cls: d <= 10 ? 'red' : 'yellow',
+      tab: 'scadenze',
+      text: `${esc(it.vehicle ? it.vehicle.plate : 'Garage')} · ${esc(label)}: ${d <= 0 ? 'SCADUTO' : d + 'gg'}`
     });
   });
   const badge = document.getElementById('scad-badge');
@@ -1987,8 +2148,13 @@ const ACTIONS = {
   'delete-refuel':    d => deleteRefuel(d.id),
   'csv-refuels':      () => exportRefuelsCSV(),
   'csv-spese':        () => exportSpeseCSV(),
+  'save-deadline':    () => saveDeadline(),
+  'delete-deadline':  () => deleteDeadline(),
+  'edit-deadline':    d => openDeadlineModal(d.id),
+  'deadline-done':    d => deadlineDone(d.id),
 };
 const CHANGES = {
+  'deadline-kind': () => onDeadlineKindChange(),
   'scadenze':   () => renderScadenze(),
   'meccanica':  () => renderMeccanica(),
   'pneumatici': () => renderPneumatici(),
@@ -2000,7 +2166,8 @@ const CHANGES = {
 const NEEDS_GARAGE = new Set(['fab', 'open-modal', 'save-vehicle', 'save-tire', 'save-mech', 'save-garage-name',
   'send-invite', 'revoke-invite', 'remove-member', 'remove-legacy', 'leave-garage', 'renew',
   'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech',
-  'add-refuel', 'save-refuel', 'edit-refuel', 'delete-refuel']);
+  'add-refuel', 'save-refuel', 'edit-refuel', 'delete-refuel',
+  'save-deadline', 'delete-deadline', 'edit-deadline', 'deadline-done']);
 // Esc chiude la finestra aperta in primo piano (tutte le modali tranne la conferma, che ha i suoi pulsanti)
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;

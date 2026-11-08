@@ -32,7 +32,7 @@ jobs:
       - name: PRECACHE del service worker completo (css/ e js/)
         run: node tools/check-precache.mjs
       - name: Unit test dei moduli puri
-        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs tests/unit/reminders.test.mjs tests/unit/workflows.test.mjs tests/unit/legacy-banner.test.mjs tests/unit/fuel.test.mjs
+        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs tests/unit/reminders.test.mjs tests/unit/workflows.test.mjs tests/unit/legacy-banner.test.mjs tests/unit/deadlines.test.mjs tests/unit/f2-integration.test.mjs tests/unit/fuel.test.mjs
       - name: VERSION del service worker incrementata (solo PR che toccano file dell'app)
         if: github.event_name == 'pull_request'
         run: |
@@ -117,10 +117,21 @@ jobs:
         run: node tests/e2e/reminders.emu.mjs
       - name: Avviso "vecchia icona" (arrivo dalla v1)
         run: node tests/e2e/legacy-banner.e2e.mjs
+      - name: Scadenze personalizzate (F2)
+        run: node tests/e2e/deadlines.e2e.mjs
       - name: Service worker e offline
         run: node tests/e2e/pwa.e2e.mjs
+      # Base = versione in produzione PRIMA di questo codice: nelle PR il branch di destinazione; nei push
+      # su main il primo genitore del merge (origin/main coinciderebbe con HEAD: nessun aggiornamento da
+      # verificare, era la ✗ rossa sui merge #4 e #5). Lancio manuale: il commit precedente.
       - name: Aggiornamento dalla versione in produzione
-        run: node tests/e2e/upgrade.e2e.mjs origin/main
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^1' }}
+        run: |
+          if [ "$(git show "$BASE":sw.js | grep -o "VERSION = '[^']*'")" = "$(grep -o "VERSION = '[^']*'" sw.js)" ]; then
+            echo "VERSION invariata rispetto a $BASE (nessun file dell'app cambiato): niente aggiornamento da verificare"; exit 0
+          fi
+          node tests/e2e/upgrade.e2e.mjs "$BASE"
       - name: Log degli emulatori
         if: failure()
         run: cat emulators.log

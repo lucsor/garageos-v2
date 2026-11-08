@@ -8,7 +8,7 @@
 // soglia di oggi per ciascuna → registro pushLog (create = idempotente) → UNA notifica per utente → pulizia.
 import { pathToFileURL } from 'node:url';
 import {
-  romeToday, vehicleDeadlines, normalizePrefs, planForUser, buildMessage,
+  romeToday, vehicleDeadlines, customDeadlines, normalizePrefs, planForUser, buildMessage,
   DEAD_TOKEN_CODES, STALE_TOKEN_DAYS, LOG_RETENTION_DAYS,
 } from './reminders-lib.mjs';
 
@@ -43,7 +43,8 @@ export async function run({ db, messaging, FieldValue, Timestamp, now = new Date
     if (!garages.has(gid)) {
       const g = await db.doc(`garages/${gid}`).get();
       const vehicles = g.exists ? (await db.collection(`garages/${gid}/vehicles`).get()).docs.map((v) => ({ id: v.id, ...v.data() })) : [];
-      garages.set(gid, { g, deadlines: vehicleDeadlines(vehicles) });
+      const custom = g.exists ? (await db.collection(`garages/${gid}/deadlines`).get()).docs.map((d) => ({ id: d.id, ...d.data() })) : [];
+      garages.set(gid, { g, deadlines: [...vehicleDeadlines(vehicles), ...customDeadlines(custom, vehicles)] });
     }
     return garages.get(gid);
   }

@@ -20,14 +20,15 @@ const today = localIso(new Date());
 const Y = Number(today.slice(0, 4));
 const lastYearEnd = `${Y - 1}-12-31`;
 
-// documenti refuels di tutti i garage, letti come amministratore (le regole non si applicano)
-async function refuelDocs() {
+// documenti di una collezione in tutti i garage, letti come amministratore (le regole non si applicano)
+async function adminDocs(collectionId) {
   const r = await fetch(`${FS}:runQuery`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
-    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'refuels', allDescendants: true }] } }),
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId, allDescendants: true }] } }),
   });
   return (await r.json()).filter((x) => x.document).map((x) => x.document);
 }
+const refuelDocs = () => adminDocs('refuels');
 
 await fetch(`http://127.0.0.1:8080/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
 await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${PROJECT}/accounts`, { method: 'DELETE' });
@@ -47,8 +48,12 @@ await page.click('[data-action="sign-in"]');
 await page.waitForFunction(() => document.getElementById('garage-role').textContent === 'Proprietario', null, { timeout: T });
 
 await page.click('#fab');
+await page.waitForSelector('#vehicle-modal.open', { timeout: T });
+const emptyDates = await page.$$eval('#v-bollo, #v-revisione, #v-assicurazione, #v-km-date', (els) => els.map((e) => `${e.id}=${e.value}`));
+check(emptyDates.every((x) => x.endsWith('=')), `veicolo nuovo: date di bollo/revisione/assicurazione/km vuote, non "oggi" (${emptyDates.join(' ')})`);
 await page.fill('#v-plate', 'FU123EL');
 await page.fill('#v-model', 'Panda benzina');
+await page.fill('#v-km', '10500');
 await page.click('[data-action="save-vehicle"]');
 await page.waitForFunction(() => document.querySelectorAll('.vehicle-card').length === 1, null, { timeout: T });
 
@@ -110,6 +115,14 @@ await page.waitForSelector('#confirm-modal.open', { timeout: T });
 check(/sono meno di quelli del rifornimento/.test(await page.textContent('#confirm-msg')), 'km inferiori al rifornimento precedente: chiede conferma');
 await page.click('#confirm-no');
 await page.click('[data-action="close-modal"][data-modal="refuel-modal"]');
+
+// ── km del veicolo: solo l'ultimo rifornimento con km MAGGIORI li aggiorna (10000 e 10300 < 10500: no; 10800: sì)
+let veh = null;
+for (let i = 0; i < 30; i++) { veh = (await adminDocs('vehicles'))[0]?.fields; if (veh?.km?.integerValue === '10800') break; await page.waitForTimeout(300); }
+check(veh?.km?.integerValue === '10800' && veh?.kmDate?.stringValue === today,
+  `km del veicolo aggiornati dall'ultimo rifornimento: ${JSON.stringify(veh?.km)} al ${veh?.kmDate?.stringValue}`);
+check(veh?.bollo?.stringValue === '' && veh?.revisione?.stringValue === '' && veh?.assicurazione?.stringValue === '',
+  'in Firestore le date del veicolo restano vuote');
 
 // ── Firestore: solo numeri
 let docs = [];
