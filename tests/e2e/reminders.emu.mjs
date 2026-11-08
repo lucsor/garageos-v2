@@ -26,6 +26,9 @@ async function reset() {
   b.set(db.doc(`garages/${OWNER}`), { ownerUid: OWNER, memberUids: [MEMBER], memberInfo: {} });
   b.set(db.doc(`garages/${OWNER}/vehicles/v1`), { plate: PLATE, model: 'Panda', bollo: day(7), bolloCost: SECRET_COST, revisione: day(30), assicurazione: day(100) });
   b.set(db.doc(`garages/${OWNER}/vehicles/v2`), { plate: 'FROZEN1', model: 'Vecchia', frozen: true, bollo: day(1) });
+  // scadenze personalizzate (F2): una del garage alla stessa data della revisione, una del veicolo congelato (esclusa)
+  b.set(db.doc(`garages/${OWNER}/deadlines/dz`), { kind: 'ztl', label: 'Permesso ZTL', vehicleId: null, due: day(30), cost: 99 });
+  b.set(db.doc(`garages/${OWNER}/deadlines/df`), { kind: 'tagliando', label: 'Tagliando', vehicleId: 'v2', due: day(1) });
   b.set(db.doc(`users/${OWNER}`), { garageId: OWNER, push: { enabled: true, days: [30, 7, 1], details: true } });
   b.set(db.doc(`users/${MEMBER}`), { garageId: OWNER, push: { enabled: true, details: false } });
   b.set(db.doc(`users/${EX}`), { garageId: OWNER, push: { enabled: true } });                 // non più in memberUids
@@ -69,19 +72,19 @@ check(m.calls.length === 2, `una notifica per utente (proprietario e membro): ${
 const toOwner = m.calls.find((c) => c.tokens.includes('tok-owner-phone'));
 const toMember = m.calls.find((c) => c.tokens.includes('tok-member'));
 check(toOwner?.tokens.length === 2, 'al proprietario: entrambi i suoi dispositivi');
-check(/PLT77XX · Bollo: tra 7 giorni/.test(toOwner?.data.body) && /PLT77XX · Revisione: tra 30 giorni/.test(toOwner?.data.body), `dettagli: targa e tipo (${JSON.stringify(toOwner?.data.body)})`);
+check(/PLT77XX · Bollo: tra 7 giorni/.test(toOwner?.data.body) && /PLT77XX · Revisione: tra 30 giorni/.test(toOwner?.data.body) && /Garage · Permesso ZTL: tra 30 giorni/.test(toOwner?.data.body), `dettagli: targa e tipo, anche le scadenze personalizzate ("Garage" senza veicolo) (${JSON.stringify(toOwner?.data.body)})`);
 check(!toOwner?.data.body.includes(SECRET_COST) && !/€/.test(toOwner?.data.body), 'mai importi nella notifica');
-check(!/FROZEN1|Assicurazione/.test(toOwner?.data.body), 'esclusi veicoli congelati e scadenze lontane');
-check(!toMember?.data.body.includes(PLATE) && /2 scadenze/.test(toMember?.data.body), `"senza dettagli" per chi l'ha scelto (${JSON.stringify(toMember?.data.body)})`);
+check(!/FROZEN1|Assicurazione|Tagliando/.test(toOwner?.data.body), 'esclusi veicoli congelati e scadenze lontane');
+check(!toMember?.data.body.includes(PLATE) && /3 scadenze/.test(toMember?.data.body), `"senza dettagli" per chi l'ha scelto (${JSON.stringify(toMember?.data.body)})`);
 check(!m.calls.some((c) => c.tokens.includes('tok-ex') || c.tokens.includes('tok-off') || c.tokens.includes('tok-stale')), 'niente a ex membri, a chi ha disattivato, a token vecchi');
 check(!(await db.doc(`users/${OWNER}/pushTokens/a2`).get()).exists && (await db.doc(`users/${OWNER}/pushTokens/a1`).get()).exists, 'token "non registrato" rimosso, quello buono resta');
 check(!(await db.doc(`users/${STALE}/pushTokens/e1`).get()).exists, 'token non usato da 60+ giorni rimosso');
-check(await count('pushLog') === 4 && (await db.doc('pushStatus/heartbeat').get()).exists, `registro: 4 voci (2 scadenze × 2 utenti) e heartbeat (${await count('pushLog')})`);
+check(await count('pushLog') === 6 && (await db.doc('pushStatus/heartbeat').get()).exists, `registro: 6 voci (3 scadenze × 2 utenti) e heartbeat (${await count('pushLog')})`);
 
 // ── idempotenza
 m = fakeMessaging();
 st = await go({ messaging: m, now: NOW, mode: 'live' });
-check(m.calls.length === 0 && st.alreadySent === 4, 'secondo run nello stesso giorno: nessun doppione');
+check(m.calls.length === 0 && st.alreadySent === 6, 'secondo run nello stesso giorno: nessun doppione');
 m = fakeMessaging();
 await Promise.all([go({ messaging: m, now: at(6), mode: 'live' }), go({ messaging: m, now: at(6), mode: 'live' })]);
 check(m.calls.length === 2, `due run IN PARALLELO il giorno della soglia 1: una sola notifica per utente (${m.calls.length})`);
