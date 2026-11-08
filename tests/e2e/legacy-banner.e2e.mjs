@@ -5,6 +5,9 @@
 //    iPhone → "Condividi → Aggiungi alla schermata Home"
 //  - "Ho capito" → non ricompare, nemmeno arrivando di nuovo con ?from=v1
 //  - app installata (display-mode: standalone) → non compare, ma il parametro viene tolto lo stesso
+//  - app già installata ma aperta nel browser (niente beforeinstallprompt, getInstalledRelatedApps → [app]) →
+//    "L'app è già installata: aprila dalla schermata Home…", nessun pulsante "Installa" muto
+//  - l'avviso spinge giù il contenuto dell'app (non lo copre)
 //  - senza ?from=v1 → non compare; nessuna violazione CSP, nessun errore
 // Prerequisiti: emulatori auth+firestore --project garageos-879bc, app su http://127.0.0.1:5173. Uso: node legacy-banner.e2e.mjs
 import { chromium } from 'playwright-core';
@@ -18,9 +21,10 @@ const problems = [];
 const check = (cond, msg) => { if (!cond) problems.push(msg); console.log(`  ${cond ? '✔' : '✖'} ${msg}`); };
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-async function open({ ua = ANDROID, standalone = false, installPrompt = null } = {}) {
+async function open({ ua = ANDROID, standalone = false, installPrompt = null, relatedApps = undefined } = {}) {
   const ctx = await browser.newContext({ userAgent: ua, viewport: { width: 390, height: 800 } });
-  await ctx.addInitScript(({ standalone, installPrompt }) => {
+  await ctx.addInitScript(({ standalone, installPrompt, relatedApps }) => {
+    if (relatedApps !== undefined) navigator.getInstalledRelatedApps = async () => relatedApps;   // Chrome Android
     window.__csp = [];
     document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
     if (standalone) {   // come l'app installata aperta dalla sua icona
@@ -36,11 +40,15 @@ async function open({ ua = ANDROID, standalone = false, installPrompt = null } =
         dispatchEvent(e);
       }, 50));
     }
-  }, { standalone, installPrompt });
+  }, { standalone, installPrompt, relatedApps });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
   return { ctx, page };
 }
+const clickInstall = async (page) => {   // il messaggio arriva dopo il controllo (asincrono) dell'app installata
+  await page.click('#legacy-install');
+  await page.waitForFunction(() => !document.getElementById('legacy-help').hidden, null, { timeout: 5000 }).catch(() => {});
+};
 const visible = (page) => page.$eval('#legacy-banner', (el) => !el.hidden && getComputedStyle(el).display !== 'none');
 const settle = (page) => page.waitForFunction(() => typeof document.getElementById('legacy-banner')?.hidden === 'boolean' && document.readyState === 'complete', null, { timeout: T }).then(() => page.waitForTimeout(400));
 // Escluse solo:
@@ -65,8 +73,9 @@ check(u.search === '?emulator', 'gli altri parametri restano invariati');
 check(await page.evaluate(() => { const b = document.getElementById('legacy-banner').getBoundingClientRect(); const el = document.elementFromPoint(b.left + b.width / 2, b.top + 10); return !!el?.closest('#legacy-banner'); }),
   'sopra la schermata di login (non coperto)');
 check(await page.isVisible('#login-screen'), 'login visibile sotto');
-await page.click('#legacy-install');
+await clickInstall(page);
 check(/⋮.*Installa app/.test(await page.textContent('#legacy-help')) && await page.isVisible('#legacy-help'), 'senza prompt del browser: istruzioni del menu ⋮');
+check(await page.$eval('#legacy-help', (h) => h.classList.contains('lb-strong')), 'istruzioni in evidenza');
 await page.click('#legacy-dismiss');
 check(!(await visible(page)), '"Ho capito" chiude l\'avviso');
 await page.goto(`${APP}?emulator&from=v1`);
@@ -97,7 +106,7 @@ console.log('\niPhone, arrivo dalla v1');
 await page.goto(`${APP}?emulator&from=v1`);
 await settle(page);
 check(await visible(page), 'avviso visibile');
-await page.click('#legacy-install');
+await clickInstall(page);
 check(/Condividi.*Aggiungi alla schermata Home/.test(await page.textContent('#legacy-help')), 'istruzioni "Condividi → Aggiungi alla schermata Home"');
 await cspOk(page, 'iPhone');
 await ctx.close();
@@ -108,6 +117,50 @@ await page.goto(`${APP}?emulator&from=v1`);
 await settle(page);
 check(!(await visible(page)), 'in standalone non compare');
 check(!page.url().includes('from='), 'parametro tolto comunque');
+await ctx.close();
+
+console.log('\nAndroid, app già installata ma aperta nel browser (nessun beforeinstallprompt)');
+const INSTALLED = "L'app è già installata: aprila dalla schermata Home e cancella la vecchia icona.";
+({ ctx, page } = await open({ relatedApps: [{ platform: 'webapp', url: 'https://lucsor.github.io/garageos-v2/manifest.json' }] }));
+await page.goto(`${APP}?emulator&from=v1`);
+await settle(page);
+check(await visible(page), 'avviso visibile');
+await page.waitForFunction(() => !document.getElementById('legacy-help').hidden, null, { timeout: 5000 }).catch(() => {});
+check((await page.textContent('#legacy-help')).trim() === INSTALLED && await page.isVisible('#legacy-help'), `messaggio "${INSTALLED}"`);
+check(!(await page.isVisible('#legacy-install')), 'nessun pulsante "Installa" che non farebbe nulla');
+check(await page.isVisible('#legacy-dismiss'), '"Ho capito" resta');
+await page.click('#legacy-dismiss');
+check(!(await visible(page)), '"Ho capito" chiude l\'avviso');
+await page.goto(`${APP}?emulator&from=v1`);
+await settle(page);
+check(!(await visible(page)), 'non ricompare');
+await cspOk(page, 'già installata');
+await ctx.close();
+
+console.log('\nAndroid, API presente ma app non installata');
+({ ctx, page } = await open({ relatedApps: [] }));
+await page.goto(`${APP}?emulator&from=v1`);
+await settle(page);
+check(await page.isVisible('#legacy-install') && await page.$eval('#legacy-help', (h) => h.hidden), 'nessun messaggio prima del tocco, "Installa" visibile');
+await clickInstall(page);
+check(/⋮/.test(await page.textContent('#legacy-help')) && await page.$eval('#legacy-help', (h) => h.classList.contains('lb-strong')), '"Installa" senza prompt → istruzioni del menu ⋮ in evidenza');
+await ctx.close();
+
+console.log('\nApp con accesso fatto: l\'avviso spinge giù il contenuto');
+({ ctx, page } = await open());
+await page.goto(`${APP}?emulator&as=lbuser`);
+await page.click('[data-action="sign-in"]');
+await page.waitForFunction(() => document.getElementById('garage-role').textContent === 'Proprietario', null, { timeout: T });
+await page.goto(`${APP}?emulator&as=lbuser&from=v1`);
+await page.waitForFunction(() => document.getElementById('garage-role').textContent === 'Proprietario', null, { timeout: T });
+await settle(page);
+check(await visible(page), 'avviso visibile sopra l\'app');
+const box = await page.evaluate(() => ({ b: document.getElementById('legacy-banner').getBoundingClientRect().bottom, a: document.querySelector('#app .app-top').getBoundingClientRect().top }));
+check(box.a >= box.b, `il contenuto inizia sotto l'avviso (avviso fino a ${Math.round(box.b)} px, app da ${Math.round(box.a)} px)`);
+await page.click('#legacy-dismiss');
+const topAfter = await page.evaluate(() => document.querySelector('#app .app-top').getBoundingClientRect().top);
+check(topAfter < box.a, `chiuso l'avviso il contenuto risale (${Math.round(topAfter)} px)`);
+await cspOk(page, 'app');
 await ctx.close();
 
 console.log('\nApertura normale');

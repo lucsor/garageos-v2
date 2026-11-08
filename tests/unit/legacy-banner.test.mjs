@@ -1,7 +1,7 @@
 // Unit test dell'avviso "vecchia icona" (js/legacy-banner.js). Uso: node --test tests/unit/legacy-banner.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stripFromV1, shouldShow, installHelp } from '../../js/legacy-banner.js';
+import { stripFromV1, shouldShow, installHelp, detectInstalled } from '../../js/legacy-banner.js';
 
 test('toglie solo from=v1 e lascia gli altri parametri identici', () => {
   assert.deepEqual(stripFromV1('?from=v1'), { fromV1: true, search: '' });
@@ -25,4 +25,12 @@ test('istruzioni: iPhone "Condividi → Aggiungi alla schermata Home", Android m
   assert.match(installHelp('ios'), /Condividi.*Aggiungi alla schermata Home/);
   assert.match(installHelp('android'), /⋮.*Installa app/);
   for (const k of ['ios', 'android']) assert.match(installHelp(k), /lucsor\.github\.io\/garageos-v2/);
+});
+
+test('detectInstalled: installata, non installata, non si sa', async () => {
+  assert.equal(await detectInstalled({ getInstalledRelatedApps: async () => [{ platform: 'webapp' }] }), true);
+  assert.equal(await detectInstalled({ getInstalledRelatedApps: async () => [] }), false);
+  assert.equal(await detectInstalled({}), null, 'API assente (iPhone, desktop)');
+  assert.equal(await detectInstalled({ getInstalledRelatedApps: async () => { throw new Error('x'); } }), null);
+  assert.equal(await detectInstalled(undefined), null);
 });
