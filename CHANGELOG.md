@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.5.3] — 2026-11-08
+### Correzioni (avviso "vecchia icona")
+- **"Installa" non resta più muto** quando la v2 è già installata ma la si apre nel browser (Chrome non manda `beforeinstallprompt`): l'app lo rileva con `navigator.getInstalledRelatedApps()` (nuovo `related_applications` nel manifest) e mostra «L'app è già installata: aprila dalla schermata Home e cancella la vecchia icona», senza pulsante Installa. Se non si può sapere, il tocco mostra in evidenza le istruzioni del menu ⋮ (o di Condividi su iPhone).
+- **L'avviso non copre più il contenuto**: sta nel flusso della pagina e spinge giù l'app (prima era sovrapposto e tagliava ad esempio "2026 (61 giorni fa)"); chiuso con "Ho capito", il contenuto risale.
+
 ## [2.5.2] — 2026-11-07
 ### Accessibilità (quick win da Lighthouse, nessun cambio di comportamento)
 - **Contrasto colori (WCAG AA):** testi secondari un po' più scuri (`--ink-2` #6b7f86 → #5b6c72); nuovi token `--green-ink` (testo verde) e `--green-strong` (fondo dei pulsanti verdi con testo bianco, FAB, banner aggiornamento, toast); `--yellow-ink` per il testo ambra dei badge; `--red` #e5484d → #c03c41 e `--blue` #2f86d6 → #2166a5. Il verde chiaro originale resta per barre, bordi e ombre. Toast giallo con testo scuro. Giorni alla scadenza colorati con le varianti leggibili.
