@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.6.0] — 2026-11-08
+### Novità
+- **Rifornimenti:** ⛽ sulla scheda di ogni veicolo (un tocco) o ＋ nella nuova scheda **Spese**. Data di oggi e "pieno" già impostati, tastierino numerico, virgola decimale ("38,5"); i valori ambigui come "1.500,5" vengono respinti con un messaggio chiaro, e se i km sono meno dell'ultimo rifornimento l'app chiede conferma. Elenco per veicolo con modifica ed eliminazione, export CSV.
+- **Consumi:** km/l, l/100 km ed €/km calcolati solo tra due pieni, sommando i rifornimenti parziali in mezzo. Compaiono solo se calcolabili; i tratti con km mancanti o incoerenti vengono esclusi e segnalati.
+- **Spese annue** (scheda **Spese**, quinta voce in basso, insieme ai rifornimenti): grafico per anno, tabella, ripartizione per veicolo ed export CSV. **"Pagato" = tutto ciò che ha un importo**, contato nell'anno della sua data: interventi (i costi multi-tipo contati una volta), rifornimenti, e scadenze con importo (bollo, revisione, assicurazione del veicolo e scadenze personalizzate, alla loro data, anche future). Le scadenze di tutto il garage compaiono come "Garage (senza veicolo)". Una scadenza del veicolo non viene contata se nello stesso anno c'è già un intervento dello stesso tipo (es. "✅ Rinnovata").
+- **Km del veicolo dai rifornimenti:** l'ultimo rifornimento (per data) aggiorna i km del veicolo, e la data "km al…", solo se i suoi km sono maggiori di quelli registrati.
+- Eliminando un veicolo si eliminano anche i suoi rifornimenti.
+### Correzioni
+- **Date vuote:** aprendo una finestra, ogni campo data vuoto veniva riempito con la data di oggi, quindi un veicolo salvato senza revisione o assicurazione risultava "in scadenza oggi". Ora restano vuote; solo la data di un intervento, di un cambio gomme o di un rifornimento parte da oggi. I dati già salvati non vengono modificati.
+### Sicurezza
+- Regole `garages/{g}/refuels`: accesso solo ai membri; km intero, litri e importo solo numeri, entro limiti; chiavi ammesse chiuse; veicolo esistente; `addedBy` = chi scrive e immutabile; `createdAt`/`updatedAt` = ora del server. Pubblicate prima dell'app, insieme a quelle delle scadenze personalizzate.
+### Sviluppo
+- Modulo puro `js/fuel.js` con unit test (`tests/unit/fuel.test.mjs`), test delle regole RF01–RF10, e2e `tests/e2e/fuel.e2e.mjs` (in CI). Progetto e limiti: `docs/v2.6.md`.
+
 ## [2.5.4] — 2026-11-08
 ### Novità
 - **Scadenze personalizzate** (scheda Scadenze → **+**): tagliando, permesso ZTL, bollino blu, Telepass, estintore, seggiolino, abbonamento parcheggio, cambio gomme, patente, altro (es. garanzia). Per un veicolo o per tutto il garage, con ricorrenza (ogni mese … ogni 10 anni), importo previsto e note.

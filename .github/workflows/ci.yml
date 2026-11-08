@@ -32,7 +32,7 @@ jobs:
       - name: PRECACHE del service worker completo (css/ e js/)
         run: node tools/check-precache.mjs
       - name: Unit test dei moduli puri
-        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs tests/unit/reminders.test.mjs tests/unit/workflows.test.mjs tests/unit/legacy-banner.test.mjs tests/unit/deadlines.test.mjs tests/unit/f2-integration.test.mjs
+        run: node --test tests/unit/modules.test.mjs tests/unit/ics.test.mjs tests/unit/reminders.test.mjs tests/unit/workflows.test.mjs tests/unit/legacy-banner.test.mjs tests/unit/deadlines.test.mjs tests/unit/f2-integration.test.mjs tests/unit/fuel.test.mjs
       - name: VERSION del service worker incrementata (solo PR che toccano file dell'app)
         if: github.event_name == 'pull_request'
         run: |
@@ -109,6 +109,8 @@ jobs:
           node tests/e2e/csp.e2e.mjs
       - name: Calendario .ics
         run: node tests/e2e/calendar.e2e.mjs
+      - name: Rifornimenti, consumi e spese annue
+        run: node tests/e2e/fuel.e2e.mjs
       - name: Promemoria push (client)
         run: node tests/e2e/push.e2e.mjs
       - name: Promemoria push (script di invio, FCM simulato)
