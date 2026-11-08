@@ -560,14 +560,15 @@ body {
 .push-ios-hint[hidden] { display: none; }
 
 /* avviso "vecchia icona" (arrivo dalla v1) */
-#legacy-banner {
-  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 12px; right: 12px; margin: 0 auto; max-width: 480px;
+#legacy-banner {   /* nel flusso della pagina: spinge giù il contenuto invece di coprirlo; z-index per restare sopra il login */
+  position: relative; margin: calc(env(safe-area-inset-top, 0px) + 12px) auto 12px; width: calc(100% - 24px); max-width: 480px;
   background: var(--card); color: var(--ink); border-radius: var(--radius-sm); border-left: 5px solid var(--yellow);
   padding: 14px 16px; z-index: 10000; box-shadow: 0 12px 36px rgba(12,51,61,0.28); animation: fadeUp 0.4s ease;
 }
 #legacy-banner[hidden], #legacy-banner [hidden] { display: none; }
 #legacy-banner .lb-text { margin: 0; font-size: 14.5px; font-weight: 700; line-height: 1.45; }
 #legacy-banner .lb-help { margin: 10px 0 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+#legacy-banner .lb-help.lb-strong { color: var(--ink); font-weight: 600; background: var(--yellow-soft); border-radius: 10px; padding: 10px 12px; }
 #legacy-banner .lb-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
 /* ===== RIFORNIMENTI E SPESE ANNUE (v2.6) ===== */

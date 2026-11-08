@@ -14,7 +14,7 @@
 ### Sviluppo
 - Modulo puro `js/fuel.js` con unit test (`tests/unit/fuel.test.mjs`), test delle regole RF01–RF10, e2e `tests/e2e/fuel.e2e.mjs` (in CI). Progetto e limiti: `docs/v2.6.md`.
 
-## [2.5.3] — 2026-11-08
+## [2.5.4] — 2026-11-08
 ### Novità
 - **Scadenze personalizzate** (scheda Scadenze → **+**): tagliando, permesso ZTL, bollino blu, Telepass, estintore, seggiolino, abbonamento parcheggio, cambio gomme, patente, altro (es. garanzia). Per un veicolo o per tutto il garage, con ricorrenza (ogni mese … ogni 10 anni), importo previsto e note.
 - Compaiono nella lista insieme a bollo, revisione e assicurazione, nella "Prossima scadenza", negli avvisi e nel contatore, nelle notifiche locali, nel file **.ics** (UID per scadenza) e nei **promemoria push** ("Garage" al posto della targa se non legate a un veicolo; mai importi).
@@ -22,6 +22,11 @@
 - Eliminando un veicolo si eliminano anche le sue scadenze personalizzate.
 ### Sicurezza
 - Regole `garages/{g}/deadlines`: solo i membri, validazione completa anche in update, numeri veri, timestamp del server, autore immutabile. Pubblicate prima dell'app (insieme a quelle dei rifornimenti); con regole vecchie la lista resta quella di sempre e il salvataggio dice che le regole non sono aggiornate.
+
+## [2.5.3] — 2026-11-08
+### Correzioni (avviso "vecchia icona")
+- **"Installa" non resta più muto** quando la v2 è già installata ma la si apre nel browser (Chrome non manda `beforeinstallprompt`): l'app lo rileva con `navigator.getInstalledRelatedApps()` (nuovo `related_applications` nel manifest) e mostra «L'app è già installata: aprila dalla schermata Home e cancella la vecchia icona», senza pulsante Installa. Se non si può sapere, il tocco mostra in evidenza le istruzioni del menu ⋮ (o di Condividi su iPhone).
+- **L'avviso non copre più il contenuto**: sta nel flusso della pagina e spinge giù l'app (prima era sovrapposto e tagliava ad esempio "2026 (61 giorni fa)"); chiuso con "Ho capito", il contenuto risale.
 
 ## [2.5.2] — 2026-11-07
 ### Accessibilità (quick win da Lighthouse, nessun cambio di comportamento)
