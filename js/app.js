@@ -103,8 +103,8 @@ function _showToast(msg, color = 'green') {
     document.body.appendChild(t);
   }
   t.textContent = msg;
-  t.style.background = color === 'red' ? 'var(--red)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green)';
-  t.style.color = '#fff';
+  t.style.background = color === 'red' ? 'var(--red)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green-strong)';
+  t.style.color = color === 'yellow' ? 'var(--ink)' : '#fff';   // bianco su giallo: 2.2:1 → testo scuro
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3200);
@@ -819,7 +819,7 @@ function updateSelectedTags() {
   wrap.innerHTML = _selectedMechTypes.map(id => {
     const t = getMechType(id);
     return `<span class="mech-selected-tag">${esc(t.icon)} ${esc(t.label)}
-      <button type="button" data-action="toggle-mech-type" data-type="${esc(id)}" title="Rimuovi">×</button></span>`;
+      <button type="button" data-action="toggle-mech-type" data-type="${esc(id)}" title="Rimuovi" aria-label="Rimuovi ${esc(t.label)}">×</button></span>`;
   }).join('');
 }
 
@@ -1325,8 +1325,8 @@ function renderDashboard() {
             <span class="vc-plate">${esc(v.plate)}</span>
           </div>
           <div style="display:flex;gap:7px">
-            <button class="icon-btn" data-action="edit-vehicle" data-id="${esc(v.id)}" title="Modifica">✏️</button>
-            <button class="icon-btn danger" data-action="delete-vehicle" data-id="${esc(v.id)}" title="Elimina">🗑️</button>
+            <button class="icon-btn" data-action="edit-vehicle" data-id="${esc(v.id)}" title="Modifica" aria-label="Modifica ${esc(v.plate)}">✏️</button>
+            <button class="icon-btn danger" data-action="delete-vehicle" data-id="${esc(v.id)}" title="Elimina" aria-label="Elimina ${esc(v.plate)}">🗑️</button>
           </div>
         </div>
         <div class="vc-model">${esc(v.model)}</div>
@@ -1355,6 +1355,7 @@ function renderScadenze() {
   document.getElementById('push-ios-hint').hidden = !(push.supportState() === 'ios-install' && !iosHintOff);
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.<br>Con <b>+</b> aggiungi tagliando, ZTL, abbonamenti, garanzie…</p></div>`; return; }
   const colors = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
+  const textColors = { green: 'var(--green-ink)', yellow: 'var(--yellow-ink)', red: 'var(--red)' };   // testo: contrasto AA
   const softs = { green: 'var(--green-soft)', yellow: 'var(--yellow-soft)', red: 'var(--red-soft)' };
   list.innerHTML = items.map(item => {
     const days = daysUntil(item.date);
@@ -1387,12 +1388,12 @@ function renderScadenze() {
     return `<div class="scadenza-item">
       <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
       <div class="sc-info">
-        <div class="sc-title">${esc(item.label)} — ${esc(item.vehicle.plate)}${item.cost ? ` <span style="color:var(--green);font-size:13px">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-title">${esc(item.label)} — ${esc(item.vehicle.plate)}${item.cost ? ` <span style="color:var(--green-ink);font-size:13px">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
         <div class="sc-sub">${esc(item.vehicle.model)} · Scade: ${esc(formatDate(item.date))}</div>
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-        <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+        <div class="sc-days" style="color:${textColors[cls]}">${daysText}</div>
         <div style="display:flex;gap:6px">
           ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} ${esc(item.vehicle.plate)} al calendario">📅</button>` : ''}
           ${item.kind !== 'assicurazione' ? `<button class="btn btn-primary btn-sm" style="padding:6px 12px;font-size:12px" data-action="renew" data-id="${esc(item.vehicle.id)}" data-kind="${esc(item.kind)}">✅ Rinnovata</button>` : ''}
@@ -1552,8 +1553,8 @@ function renderPneumatici() {
         <div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">${vLabel}</div></div>
         <span class="tire-season ${esc(t.season)}">${seasonLabel}</span>
         <div style="display:flex;gap:6px">
-          <button class="icon-btn" data-action="edit-tire" data-id="${esc(t.id)}" title="Modifica">✏️</button>
-          <button class="icon-btn danger" data-action="delete-tire" data-id="${esc(t.id)}" title="Elimina">🗑️</button>
+          <button class="icon-btn" data-action="edit-tire" data-id="${esc(t.id)}" title="Modifica" aria-label="Modifica cambio gomme ${esc(formatDate(t.date))}">✏️</button>
+          <button class="icon-btn danger" data-action="delete-tire" data-id="${esc(t.id)}" title="Elimina" aria-label="Elimina cambio gomme ${esc(formatDate(t.date))}">🗑️</button>
         </div>
       </div>
       <div class="tire-detail">📅 <strong>${esc(formatDate(t.date))}</strong>${t.km ? ' · ' + Number(t.km).toLocaleString('it-IT') + ' km' : ''}</div>
@@ -1584,8 +1585,8 @@ function mechItemHTML(m) {
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
       <div class="mech-cost">${ci?.included ? `<span class="badge incl" title="Costo già conteggiato in «${esc(payerLabel)}»">incluso</span>` : formatCurrency(m.cost)}</div>
       <div style="display:flex;gap:6px">
-        <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica">✏️</button>
-        <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina">🗑️</button>
+        <button class="icon-btn" data-action="edit-mech" data-id="${esc(m.id)}" title="Modifica" aria-label="Modifica ${esc(mt.label)} ${esc(formatDate(m.date))}">✏️</button>
+        <button class="icon-btn danger" data-action="delete-mech" data-id="${esc(m.id)}" title="Elimina" aria-label="Elimina ${esc(mt.label)} ${esc(formatDate(m.date))}">🗑️</button>
       </div>
     </div>
   </div>`;
@@ -1652,7 +1653,7 @@ function renderMeccanica() {
         <div class="year-header-left">
           <span class="year-label">${yr}</span>
           <span class="year-count">${items.length}</span>
-          ${isCurrentYear ? `<span style="font-size:11px;color:var(--green);font-weight:800">● in corso</span>` : ''}
+          ${isCurrentYear ? `<span style="font-size:11px;color:var(--green-ink);font-weight:800">● in corso</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:14px">
           ${yrCost > 0 ? `<span class="year-cost">€${yrCost.toLocaleString('it-IT')}</span>` : ''}
@@ -1672,7 +1673,7 @@ function renderFamiglia() {
   const grid = document.getElementById('family-grid');
   if (!grid) return;
   const owner = data.garageOwner;
-  const meTag = ' <span style="color:var(--green);font-size:11px">(tu)</span>';
+  const meTag = ' <span style="color:var(--green-ink);font-size:11px">(tu)</span>';
   const avatar = (photo, fallback = '👤') => safeImg(photo)
     ? `<img class="family-avatar" src="${esc(safeImg(photo))}" alt="" referrerpolicy="no-referrer">`
     : `<div class="family-avatar-placeholder">${fallback}</div>`;

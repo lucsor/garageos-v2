@@ -1,13 +1,22 @@
 # Changelog
 
-## [2.5.3] — in preparazione (branch `feat/f2-custom-deadlines`, regole NON pubblicate)
+## [2.5.3] — 2026-11-08
 ### Novità
 - **Scadenze personalizzate** (scheda Scadenze → **+**): tagliando, permesso ZTL, bollino blu, Telepass, estintore, seggiolino, abbonamento parcheggio, cambio gomme, patente, altro (es. garanzia). Per un veicolo o per tutto il garage, con ricorrenza (ogni mese … ogni 10 anni), importo previsto e note.
 - Compaiono nella lista insieme a bollo, revisione e assicurazione, nella "Prossima scadenza", negli avvisi e nel contatore, nelle notifiche locali, nel file **.ics** (UID per scadenza) e nei **promemoria push** ("Garage" al posto della targa se non legate a un veicolo; mai importi).
 - **✅ Fatto**: una ricorrente passa alla prossima data (saltando i periodi già passati), una singola viene tolta. ✏️ per modificare o eliminare.
 - Eliminando un veicolo si eliminano anche le sue scadenze personalizzate.
 ### Sicurezza
-- Regole `garages/{g}/deadlines`: solo i membri, validazione completa anche in update, numeri veri, timestamp del server, autore immutabile. **Da pubblicare PRIMA dell'app**: senza, la lista resta quella di sempre e il salvataggio dice che le regole non sono aggiornate.
+- Regole `garages/{g}/deadlines`: solo i membri, validazione completa anche in update, numeri veri, timestamp del server, autore immutabile. Pubblicate prima dell'app (insieme a quelle dei rifornimenti); con regole vecchie la lista resta quella di sempre e il salvataggio dice che le regole non sono aggiornate.
+
+## [2.5.2] — 2026-11-07
+### Accessibilità (quick win da Lighthouse, nessun cambio di comportamento)
+- **Contrasto colori (WCAG AA):** testi secondari un po' più scuri (`--ink-2` #6b7f86 → #5b6c72); nuovi token `--green-ink` (testo verde) e `--green-strong` (fondo dei pulsanti verdi con testo bianco, FAB, banner aggiornamento, toast); `--yellow-ink` per il testo ambra dei badge; `--red` #e5484d → #c03c41 e `--blue` #2f86d6 → #2166a5. Il verde chiaro originale resta per barre, bordi e ombre. Toast giallo con testo scuro. Giorni alla scadenza colorati con le varianti leggibili.
+- **Etichette:** ogni etichetta delle finestre (veicolo, gomme, intervento, nome garage) è collegata al suo campo; i filtri, il campo email dell'invito e i pulsanti CSV hanno un nome accessibile; ✏️/🗑️ dicono cosa modificano o eliminano (es. "Elimina AB123CD"); la × dei tipi di intervento dice quale tipo rimuove. Le finestre hanno `role="dialog"` con titolo (come già Calendario e Promemoria); icone SVG decorative nascoste agli screen reader.
+- **Area di tocco ≥ 44 px** per ✏️/🗑️/📅, pulsanti piccoli, segmenti Meccanica/Pneumatici e "Copia", senza cambiarne l'aspetto (area invisibile attorno al pulsante); 32 px per la × dei tipi selezionati.
+- Focus visibile sui menu a tendina dei filtri; bordo di focus dei campi più contrastato.
+- **Primo disegno misurabile (P1):** l'animazione di comparsa parte da opacità 0,01 invece di 0. Invisibile a occhio, ma ora Lighthouse e Chrome registrano il First Contentful Paint (prima: errore NO_FCP).
+- Analisi completa e problemi rimanenti in `docs/QUALITA.md`.
 
 ## [2.5.1] — 2026-11-07
 ### Novità
