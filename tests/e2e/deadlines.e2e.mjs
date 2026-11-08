@@ -106,7 +106,26 @@ check((ics.match(/^BEGIN:VEVENT/gm) || []).length === 5 && ics.includes('ZTL Mil
 
 // "Fatto" sulla ricorrente → +12 mesi
 await page.click('.scadenza-item:has-text("ZTL Milano") [data-action="deadline-done"]');
-await confirmYes(page);
+await page.waitForSelector('#deadline-done-modal.open', { timeout: T });
+check(await page.inputValue('#dd-amount') === '80,5', `"Fatto": importo precompilato con il costo previsto (${await page.inputValue('#dd-amount')})`);
+check(await page.inputValue('#dd-date') === iso(0), '"Fatto": data del pagamento = oggi');
+await page.fill('#dd-amount', '1.500,5');
+await page.click('[data-action="confirm-deadline-done"]');
+check(await page.isVisible('#dd-error') && await page.isVisible('#deadline-done-modal.open'), '"1.500,5" respinto, la finestra resta aperta');
+await page.fill('#dd-amount', '82,30');
+await page.click('[data-action="confirm-deadline-done"]');
+let pay = null;
+for (let i = 0; i < 20 && !pay; i++) {
+  pay = (await db.collection(`garages/${uid}/payments`).get()).docs[0]?.data();
+  if (!pay) await page.waitForTimeout(300);
+}
+check(pay && pay.amount === 82.3 && pay.date === iso(0) && pay.kind === 'ztl' && typeof pay.vehicleId === 'string'
+  && pay.createdAt?.constructor?.name === 'Timestamp', `pagamento registrato con l'importo modificato: ${pay?.amount} (number), ${pay?.date}`);
+await page.click('#nav-spese');
+await page.click('#seg-annue');
+await page.waitForFunction(() => /82,30/.test(document.getElementById('subsection-annue').textContent), null, { timeout: T }).catch(() => {});
+check(/82,30/.test(await page.textContent('#subsection-annue')), 'il pagamento conta nelle Spese annue');
+await page.click('#nav-scadenze');
 const next = (() => { const d = new Date(iso(20) + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() + 1); return d.toISOString().slice(0, 10); })();
 let moved = false;
 for (let i = 0; i < 20 && !moved; i++) {
@@ -136,9 +155,12 @@ check(true, 'un membro modifica una scadenza');
 
 // "Fatto" su una singola → eliminata
 await p2.click('.scadenza-item:has-text("Estintore garage") [data-action="deadline-done"]');
-await confirmYes(p2);
+await p2.waitForSelector('#deadline-done-modal.open', { timeout: T });
+check(await p2.inputValue('#dd-amount') === '', '"Fatto" senza costo previsto: importo vuoto');
+await p2.click('[data-action="confirm-deadline-done"]');
 await p2.waitForFunction(() => ![...document.querySelectorAll('.sc-title')].some((e) => e.textContent.includes('Estintore')), null, { timeout: T }).catch(() => {});
 check(!(await items(p2)).some((t) => t.startsWith('Estintore')), '"Fatto" su una scadenza singola la elimina');
+check((await db.collection(`garages/${uid}/payments`).get()).size === 1, 'importo vuoto: nessun pagamento registrato');
 await c2.close();
 
 // cancellando il veicolo spariscono anche le sue scadenze personalizzate
@@ -151,6 +173,12 @@ for (let i = 0; i < 20 && !gone; i++) {
   if (!gone) await page.waitForTimeout(300);
 }
 check(gone, 'eliminando il veicolo vengono eliminate anche le sue scadenze personalizzate');
+let payGone = false;
+for (let i = 0; i < 20 && !payGone; i++) {
+  payGone = (await db.collection(`garages/${uid}/payments`).get()).empty;
+  if (!payGone) await page.waitForTimeout(300);
+}
+check(payGone, '... e i suoi pagamenti');
 
 const csp = [...new Set(await page.evaluate(() => window.__csp))];
 check(csp.length === 0, `nessuna violazione CSP${csp.length ? ': ' + csp.join(' | ') : ''}`);

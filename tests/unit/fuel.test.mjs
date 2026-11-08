@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   parseDecimal, parseKm, toNum, refuelFromForm, sortRefuels, consumption, spendingRows, totalsByYear,
   refuelCsvRows, spendingCsvRows, csvNum, fmtNum, yearOf, LIMITS, deadlineExtras,
+  paymentPrefill, paymentFromForm, paymentExtras, PAYMENT_LIMITS,
 } from '../../js/fuel.js';
 import { collectDeadlines } from '../../js/deadlines.js';
 
@@ -239,4 +240,25 @@ test('"pagato" = tutto ciò che ha un importo: scadenze dei veicoli e personaliz
   assert.ok(rows.some((x) => x.year === 2028 && x.vehicleId === ''), 'scadenza di tutto il garage: riga senza veicolo');
   // importo legacy ambiguo ("1.500") ignorato, come nell'inserimento
   assert.equal(deadlineExtras(collectDeadlines([{ id: 'v9', assicurazione: '2026-01-01', assicurazioneCost: '1.500' }], [])).length, 0);
+});
+
+test('pagamenti del "✅ Fatto": precompilazione, modulo, spese annue, limiti = regole', () => {
+  assert.equal(paymentPrefill(80.5), '80,5');
+  assert.equal(paymentPrefill('80,50'), '80,5');
+  assert.equal(paymentPrefill(null), '');
+  assert.equal(paymentPrefill(0), '');
+  assert.deepEqual(paymentFromForm({ amount: '80,50', date: '2026-11-08' }), { ok: true, amount: 80.5, date: '2026-11-08' });
+  assert.deepEqual(paymentFromForm({ amount: '', date: '2026-11-08' }), { ok: true, amount: null, date: null });
+  assert.deepEqual(paymentFromForm({ amount: '0', date: '' }), { ok: true, amount: null, date: null });
+  assert.equal(paymentFromForm({ amount: '1.500,5', date: '2026-11-08' }).ok, false);
+  assert.equal(paymentFromForm({ amount: '80', date: '' }).ok, false);
+  assert.equal(paymentFromForm({ amount: '1000001', date: '2026-11-08' }).ok, false);
+  const ex = paymentExtras([{ vehicleId: 'v1', date: '2026-11-08', amount: 80.5 }, { vehicleId: null, date: '2027-01-02', amount: 30 },
+    { vehicleId: 'v1', date: '', amount: 10 }, { vehicleId: 'v1', date: '2026-01-01', amount: 0 }]);
+  assert.deepEqual(ex, [{ vehicleId: 'v1', date: '2026-11-08', amount: 80.5, category: 'scadenze' },
+    { vehicleId: '', date: '2027-01-02', amount: 30, category: 'scadenze' }]);
+  const { rows } = spendingRows({ extras: ex });
+  assert.equal(rows.find((r) => r.year === 2026 && r.vehicleId === 'v1').scadenze, 80.5);
+  const rules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
+  assert.ok(rules.includes(`d.amount > 0 && d.amount <= ${PAYMENT_LIMITS.amountMax}`), 'limite importo = paymentOk()');
 });
