@@ -15,7 +15,8 @@ import { esc, safeImg, daysUntil, badgeClass, TYPE_EMOJI, MECH_TYPES, getMechTyp
 import { csvSafe, downloadCSV } from './csv.js';
 import { mechCostInfo } from './costs.js';
 import { refuelFromForm, sortRefuels, consumption, spendingRows, totalsByYear, refuelCsvRows, spendingCsvRows,
-  toNum, parseKm, csvNum, fmtNum, fmtEuro, CATEGORIES, deadlineExtras } from './fuel.js';
+  toNum, parseKm, csvNum, fmtNum, fmtEuro, CATEGORIES, deadlineExtras,
+  paymentPrefill, paymentFromForm, paymentExtras } from './fuel.js';
 import { createPush, DAY_OPTIONS } from './push.js';
 import { initLegacyBanner } from './legacy-banner.js';
 import { deadlineEvents, deadlineEvent, customDeadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
@@ -65,7 +66,7 @@ let currentTab  = 'garage';
 let currentSubTab = 'meccanica';
 let currentSpeseSub = 'rifornimenti';
 const emptyData = () => ({
-  vehicles: [], tires: [], mechs: [], deadlines: [], refuels: [], refuelsError: '',
+  vehicles: [], tires: [], mechs: [], deadlines: [], refuels: [], refuelsError: '', payments: [],
   memberUids: [], memberInfo: {}, legacyMembers: [], invites: [],
   garageOwner: null, garageName: '',
 });
@@ -511,7 +512,13 @@ function startListeners() {
       renderAll();
     }
   );
-  _unsubscribers = [u1, u2, u3, u4, u6, u7];
+  // Pagamenti delle scadenze personalizzate (v2.6.1): solo per le spese annue; un errore non blocca nulla
+  const u8 = onSnapshot(
+    collection(db, base + '/payments'),
+    snap => { data.payments = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderAll(); },
+    err => { console.warn('pagamenti:', err.code || err.message); data.payments = []; renderAll(); }
+  );
+  _unsubscribers = [u1, u2, u3, u4, u6, u7, u8];
   if (isOwner) {
     const u5 = onSnapshot(
       query(collection(db, 'invites'), where('garageId', '==', garageId)),
@@ -564,6 +571,7 @@ async function removeVehicle(id) {
     ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
     ...data.refuels.filter(r => r.vehicleId === id).map(r => deleteDoc(vDoc('refuels', r.id))),
     ...data.deadlines.filter(d => d.vehicleId === id).map(d => deleteDoc(vDoc('deadlines', d.id))),
+    ...data.payments.filter(p => p.vehicleId === id).map(p => deleteDoc(vDoc('payments', p.id))),
   ]);
 }
 async function removeTire(id) { await deleteDoc(vDoc('tires', id)); }
@@ -1050,22 +1058,59 @@ async function deleteDeadline() {
   catch(e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
 }
 // "Fatto": ricorrente → prossima data (saltando i periodi già passati); singola → eliminata
-async function deadlineDone(id) {
+// "✅ Fatto": finestra con l'importo pagato (precompilato con il costo previsto, modificabile) e la data.
+// Con un importo registra un pagamento (garages/{g}/payments, conta nelle spese annue); poi la scadenza
+// ricorrente avanza alla prossima data, quella singola viene tolta. Il pagamento resta comunque nello storico.
+function nextDueAfterDone(d) {
+  if (!d.repeatMonths) return null;
+  const today = localToday();
+  let next = advanceDue(d.due, d.repeatMonths);
+  for (let i = 0; next < today && i < 1200; i++) next = advanceDue(next, d.repeatMonths);
+  return next;
+}
+function deadlineDone(id) {
   const d = data.deadlines.find(x => x.id === id);
   if (!d) return;
+  const next = nextDueAfterDone(d);
+  document.getElementById('dd-id').value = id;
+  document.getElementById('dd-title').textContent = `✅ ${d.label}`;
+  document.getElementById('dd-info').textContent = next
+    ? `Prossima scadenza: ${formatDate(next)}.`
+    : "Non si ripete: verrà tolta dall'elenco.";
+  document.getElementById('dd-amount').value = paymentPrefill(d.cost);
+  document.getElementById('dd-date').value = localToday();
+  showPaymentError('');
+  openModal('deadline-done-modal');
+  document.getElementById('dd-amount').focus();
+}
+function showPaymentError(msg) {
+  const box = document.getElementById('dd-error');
+  box.textContent = msg; box.hidden = !msg;
+  const inp = document.getElementById('dd-amount');
+  if (msg) inp.setAttribute('aria-invalid', 'true'); else inp.removeAttribute('aria-invalid');
+}
+async function confirmDeadlineDone() {
+  const id = document.getElementById('dd-id').value;
+  const d = data.deadlines.find(x => x.id === id);
+  if (!d) { closeModal('deadline-done-modal'); _showToast('La scadenza non esiste più', 'yellow'); return; }
+  const res = paymentFromForm({ amount: document.getElementById('dd-amount').value, date: document.getElementById('dd-date').value });
+  if (!res.ok) { showPaymentError(res.error); document.getElementById('dd-amount').focus(); return; }
+  const next = nextDueAfterDone(d);
+  const writes = [next
+    ? setDoc(vDoc('deadlines', id), { due: next, updatedAt: serverTimestamp() }, { merge: true })
+    : deleteDoc(vDoc('deadlines', id))];
+  if (res.amount) {
+    writes.push(setDoc(vDoc('payments', newId('payments')), {
+      deadlineId: id, kind: d.kind, label: d.label, vehicleId: d.vehicleId || null,
+      date: res.date, amount: res.amount,
+      addedBy: (currentUser?.email || '').toLowerCase(), createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
+  }
+  closeModal('deadline-done-modal');
   try {
-    if (d.repeatMonths) {
-      const today = localToday();
-      let next = advanceDue(d.due, d.repeatMonths);
-      for (let i = 0; next < today && i < 1200; i++) next = advanceDue(next, d.repeatMonths);
-      if (!await showConfirm(`Segnare "${d.label}" come fatta? Prossima scadenza: ${formatDate(next)}.`)) return;
-      await written(setDoc(vDoc('deadlines', id), { due: next, updatedAt: serverTimestamp() }, { merge: true }));
-      _showToast(`✅ Prossima scadenza ${formatDate(next)}`);
-    } else {
-      if (!await showConfirm(`Segnare "${d.label}" come fatta? Non si ripete: verrà tolta dall'elenco.`)) return;
-      await written(deleteDoc(vDoc('deadlines', id)));
-      _showToast('✅ Fatta');
-    }
+    await written(Promise.all(writes));
+    const paid = res.amount ? ` · pagati ${fmtEuro(res.amount)}` : '';
+    _showToast(next ? `✅ Prossima scadenza ${formatDate(next)}${paid}` : `✅ Fatta${paid}`);
   } catch(e) { _showToast('Errore: ' + (e.code || e.message), 'red'); }
 }
 function switchSpeseSub(name) {
@@ -1890,7 +1935,9 @@ function renderRifornimenti() {
 
 // ===== SPESE ANNUE =====
 // Scadenze con importo (bollo/revisione/assicurazione dei veicoli e personalizzate), nell'anno della loro data
-function spendingExtras() { return deadlineExtras(collectDeadlines(data.vehicles, data.deadlines), data.mechs); }
+function spendingExtras() {
+  return [...deadlineExtras(collectDeadlines(data.vehicles, data.deadlines), data.mechs), ...paymentExtras(data.payments)];
+}
 const CAT_LABEL = { interventi: 'Interventi', scadenze: 'Scadenze', carburante: 'Carburante' };
 // '' = scadenza di tutto il garage (F2, senza veicolo); id sconosciuto = veicolo eliminato
 const spendVehicleName = id => {
@@ -2152,6 +2199,7 @@ const ACTIONS = {
   'delete-deadline':  () => deleteDeadline(),
   'edit-deadline':    d => openDeadlineModal(d.id),
   'deadline-done':    d => deadlineDone(d.id),
+  'confirm-deadline-done': () => confirmDeadlineDone(),
 };
 const CHANGES = {
   'deadline-kind': () => onDeadlineKindChange(),
@@ -2167,7 +2215,7 @@ const NEEDS_GARAGE = new Set(['fab', 'open-modal', 'save-vehicle', 'save-tire', 
   'send-invite', 'revoke-invite', 'remove-member', 'remove-legacy', 'leave-garage', 'renew',
   'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech',
   'add-refuel', 'save-refuel', 'edit-refuel', 'delete-refuel',
-  'save-deadline', 'delete-deadline', 'edit-deadline', 'deadline-done']);
+  'save-deadline', 'delete-deadline', 'edit-deadline', 'deadline-done', 'confirm-deadline-done']);
 // Esc chiude la finestra aperta in primo piano (tutte le modali tranne la conferma, che ha i suoi pulsanti)
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;

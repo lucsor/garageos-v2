@@ -198,6 +198,35 @@ export function deadlineExtras(items = [], mechs = []) {
   }
   return out;
 }
+// ===== Pagamenti delle scadenze personalizzate ("✅ Fatto", v2.6.1) =====
+// Limiti: devono coincidere con paymentOk() in firestore.rules
+export const PAYMENT_LIMITS = { amountMax: 1000000 };
+// Importo precompilato nella finestra: il costo previsto della scadenza, con la virgola ("80,5"); vuoto se non c'è
+export function paymentPrefill(cost) {
+  const n = typeof cost === 'string' ? parseDecimal(cost, 2) : toNum(cost);
+  return n > 0 ? String(n).replace('.', ',') : '';
+}
+// Dal modulo: importo vuoto o 0 = nessun pagamento registrato (la scadenza avanza comunque).
+// → { ok, amount (numero o null), date, error }
+export function paymentFromForm({ amount, date }) {
+  const a = parseDecimal(amount, 2);
+  if (Number.isNaN(a)) return { ok: false, error: 'Importo non valido: usa la virgola per i centesimi, senza punto delle migliaia (es. 80,50)' };
+  if (a !== null && a > PAYMENT_LIMITS.amountMax) return { ok: false, error: 'Importo troppo alto' };
+  const pay = a !== null && a > 0;
+  if (pay && !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return { ok: false, error: 'Indica la data del pagamento' };
+  return { ok: true, amount: pay ? Math.round(a * 100) / 100 : null, date: pay ? date : null };
+}
+// Pagamenti → righe "extra" delle spese annue (categoria scadenze), nell'anno della data del pagamento
+export function paymentExtras(payments = []) {
+  const out = [];
+  for (const p of payments) {
+    const amount = toNum(p.amount);
+    if (!(amount > 0) || yearOf(p.date) === null) continue;
+    out.push({ vehicleId: p.vehicleId || '', date: p.date, amount, category: 'scadenze' });
+  }
+  return out;
+}
+
 // Totali per anno (eventualmente di un solo veicolo), in ordine cronologico
 export function totalsByYear(rows, vehicleId = '') {
   const by = new Map();

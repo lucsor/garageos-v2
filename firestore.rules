@@ -11,6 +11,7 @@ rules_version = '2';
 //     vehicles/{id}, tires/{id}, mechs/{id}
 //     deadlines/{id}                    scadenze personalizzate (v2.4): numeri veri e timestamp del server
 //     refuels/{id}                      rifornimenti (v2.6): numeri veri, timestamp del server, addedBy immutabile
+//     payments/{id}                     pagamenti delle scadenze personalizzate ("✅ Fatto", v2.6.1)
 //   invites/{token}                     token = 256 bit casuali in esadecimale, scadenza ≤ 7 giorni, uso singolo
 //   users/{uid}.push                    preferenze promemoria {enabled, days[], details}
 //   users/{uid}/pushTokens/{sha256}     token FCM dei dispositivi: SOLO il proprietario li vede
@@ -180,6 +181,21 @@ service cloud.firestore {
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.updatedAt == request.time;
       }
+      // Pagamenti delle scadenze personalizzate (v2.6.1): registrati dal "✅ Fatto" con l'importo pagato.
+      // Restano anche se la scadenza viene tolta (storico delle spese). Collezione nuova: validazione completa.
+      match /payments/{id} {
+        allow read, delete: if isMember(gid);
+        allow create: if isMember(gid) && validId(id)
+          && paymentOk(request.resource.data)
+          && request.resource.data.addedBy == myEmail()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isMember(gid)
+          && paymentOk(request.resource.data)
+          && request.resource.data.addedBy == resource.data.addedBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+      }
       // qualunque altra sottocollezione: negata (default)
     }
 
@@ -337,6 +353,21 @@ service cloud.firestore {
         && d.amount is number && d.amount >= 0 && d.amount <= 10000
         && d.full is bool
         && optStr(d, 'note', 200)
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && str(d.addedBy, 254);
+    }
+    // ───────── pagamenti delle scadenze ─────────
+    // limiti: devono coincidere con PAYMENT_LIMITS in js/fuel.js
+    function paymentOk(d) {
+      return d.keys().hasOnly(['deadlineId', 'kind', 'label', 'vehicleId', 'date', 'amount',
+                               'addedBy', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['deadlineId', 'kind', 'label', 'date', 'amount', 'addedBy', 'createdAt', 'updatedAt'])
+        && validId(d.deadlineId)
+        && d.kind in deadlineKinds()
+        && reqStr(d, 'label', 60)
+        && (!('vehicleId' in d) || d.vehicleId == null || validId(d.vehicleId))
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.amount is number && d.amount > 0 && d.amount <= 1000000
         && d.createdAt is timestamp && d.updatedAt is timestamp
         && str(d.addedBy, 254);
     }

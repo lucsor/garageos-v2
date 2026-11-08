@@ -597,4 +597,60 @@ describe(`Regole: ${RULES}`, () => {
       await assertFails(getDocs(collection(ctx(OTHER_OWNER), 'garages', GID, 'refuels')));
     });
   });
+
+  describe('PAGAMENTI DELLE SCADENZE (payments, v2.6.1)', () => {
+    const pref = (db, id = 'p1') => doc(db, 'garages', GID, 'payments', id);
+    const ok = (uid = MEMBER, extra = {}) => ({
+      deadlineId: 'dl1abc', kind: 'ztl', label: 'Permesso ZTL', vehicleId: 'mk1abc2def', date: '2026-11-08', amount: 80.5,
+      addedBy: email(uid), createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const seed = () => env.withSecurityRulesDisabled((c) => setDoc(pref(c.firestore()), {
+      deadlineId: 'dl1abc', kind: 'ztl', label: 'Permesso ZTL', vehicleId: null, date: '2026-11-01', amount: 80,
+      addedBy: email(OWNER), createdAt: Timestamp.fromMillis(Date.now() - DAY), updatedAt: Timestamp.fromMillis(Date.now() - DAY),
+    }));
+
+    test('PY01 i membri creano (anche senza veicolo), leggono, modificano e cancellano', async () => {
+      await assertSucceeds(setDoc(pref(ctx(OWNER), 'a'), ok(OWNER)));
+      await assertSucceeds(setDoc(pref(ctx(MEMBER), 'b'), ok(MEMBER, { vehicleId: null })));
+      await assertSucceeds(setDoc(pref(ctx(MEMBER), 'c'), (({ vehicleId, ...x }) => x)(ok(MEMBER))));
+      await assertSucceeds(getDocs(collection(ctx(MEMBER), 'garages', GID, 'payments')));
+      await assertSucceeds(updateDoc(pref(ctx(MEMBER), 'a'), { amount: 90, updatedAt: serverTimestamp() }));
+      await assertSucceeds(deleteDoc(pref(ctx(OWNER), 'b')));
+    });
+    test('PY02 non membri, anonimi e altri garage: niente', async () => {
+      await seed();
+      for (const db of [ctx(STRANGER), ctx(INVITEE), anon(), ctx(OTHER_OWNER)]) {
+        await assertFails(getDoc(pref(db)));
+        await assertFails(getDocs(collection(db, 'garages', GID, 'payments')));
+        await assertFails(setDoc(pref(db, 'x'), ok(STRANGER)));
+        await assertFails(deleteDoc(pref(db)));
+      }
+    });
+    test('PY03 importo: solo numero > 0 e ≤ 1.000.000', async () => {
+      const db = ctx(MEMBER);
+      for (const bad of [{ amount: '80,50' }, { amount: 0 }, { amount: -1 }, { amount: 1_000_001 }, { amount: null }]) {
+        await assertFails(setDoc(pref(db, 'x'), ok(MEMBER, bad)));
+      }
+      await seed();
+      await assertFails(updateDoc(pref(db), { amount: '90', updatedAt: serverTimestamp() }));
+    });
+    test('PY04 campi non validi, extra o mancanti negati', async () => {
+      const db = ctx(MEMBER);
+      for (const bad of [{ kind: 'bollo' }, { date: '08/11/2026' }, { label: '' }, { label: 'x'.repeat(61) },
+        { deadlineId: "x');//" }, { vehicleId: "x');//" }, { cost: 80 }]) {
+        await assertFails(setDoc(pref(db, 'x'), ok(MEMBER, bad)));
+      }
+      await assertFails(setDoc(pref(db, 'x'), (({ deadlineId, ...x }) => x)(ok(MEMBER))));
+      await assertFails(setDoc(pref(db, 'x'), (({ date, ...x }) => x)(ok(MEMBER))));
+    });
+    test('PY05 addedBy e timestamp: chi scrive, del server, immutabili', async () => {
+      const db = ctx(MEMBER);
+      await assertFails(setDoc(pref(db, 'x'), ok(MEMBER, { addedBy: email(OWNER) })));
+      await assertFails(setDoc(pref(db, 'x'), ok(MEMBER, { createdAt: Timestamp.fromMillis(Date.now()) })));
+      await seed();
+      await assertFails(updateDoc(pref(db), { addedBy: email(MEMBER), updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(pref(db), { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(pref(db), { amount: 91 }));
+    });
+  });
 });

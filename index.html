@@ -524,6 +524,31 @@
   </div>
 </div>
 
+<!-- MODAL: SCADENZA FATTA (pagamento) -->
+<div class="modal-overlay" id="deadline-done-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dd-title">
+    <div class="modal-title" id="dd-title">✅ Fatta</div>
+    <input type="hidden" id="dd-id">
+    <p class="cal-hint" id="dd-info"></p>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="dd-amount">Importo pagato (€)</label>
+        <input type="text" inputmode="decimal" autocomplete="off" class="form-input" id="dd-amount" maxlength="12" placeholder="es. 80,50" aria-describedby="dd-error dd-hint">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="dd-date">Pagato il</label>
+        <input type="date" class="form-input" id="dd-date">
+      </div>
+    </div>
+    <p class="cal-hint" id="dd-hint">L'importo entra nelle Spese dell'anno del pagamento. Lascialo vuoto se non c'è nulla da registrare.</p>
+    <p class="form-error" id="dd-error" role="alert" hidden></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-action="close-modal" data-modal="deadline-done-modal">Annulla</button>
+      <button class="btn btn-primary" id="btn-confirm-done" data-action="confirm-deadline-done">Conferma</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: AGGIUNGI AL CALENDARIO (una scadenza) -->
 <div class="modal-overlay" id="cal-modal">
   <div class="modal" style="max-width:400px" role="dialog" aria-modal="true" aria-labelledby="cal-modal-title">

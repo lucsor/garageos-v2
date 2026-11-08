@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1] — 2026-11-08
+### Novità
+- **"✅ Fatto" registra il pagamento:** si apre una finestra con l'**importo pagato**, precompilato con il costo previsto della scadenza e modificabile, e la data del pagamento (oggi). L'importo entra nelle **Spese** dell'anno del pagamento, categoria Scadenze. Vuoto = nessun pagamento registrato. La scadenza ricorrente avanza come prima; quella singola viene tolta, ma il pagamento resta nello storico delle spese.
+- Eliminando un veicolo si eliminano anche i pagamenti delle sue scadenze.
+### Sicurezza
+- Regole `garages/{g}/payments`: solo i membri; importo numero > 0 e ≤ 1.000.000; tipo tra quelli delle scadenze; autore e `createdAt` immutabili, timestamp del server. **Pubblicate prima dell'app.**
+
 ## [2.6.0] — 2026-11-08
 ### Novità
 - **Rifornimenti:** ⛽ sulla scheda di ogni veicolo (un tocco) o ＋ nella nuova scheda **Spese**. Data di oggi e "pieno" già impostati, tastierino numerico, virgola decimale ("38,5"); i valori ambigui come "1.500,5" vengono respinti con un messaggio chiaro, e se i km sono meno dell'ultimo rifornimento l'app chiede conferma. Elenco per veicolo con modifica ed eliminazione, export CSV.
