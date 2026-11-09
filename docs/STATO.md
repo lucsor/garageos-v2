@@ -1,17 +1,17 @@
 # Stato del lavoro — aggiornato 2026-11-09
 
-> **In produzione: v2.6.1** (`main` = `e75baa7`), regole `42869098`. Invariato rispetto all'8/11 sera.
-> **In revisione: PR A = v2.7.0** (registro pagamenti + Pagato/Previsto), branch `feat/v2.7-payments-ledger`, **non pubblicata**.
+> **In produzione: v2.7.0** (`main` = `7d179f6`, merge della #17), regole **`80c23d65`** (sha256 `45013978…` = `firestore.rules`).
 > **Cosa ti serve fare:**
-> 1. Rivedere il diff delle regole `payments` e autorizzare il deploy delle regole (**prima** del merge della PR A).
-> 2. Le richieste dell'8/11 restano aperte: prove dal telefono (§5 sotto), avviso all'amico (§3.2), conteggi dei promemoria dopo l'11/11 (§3.3).
+> 1. Le prove dal telefono del registro pagamenti (§0.2).
+> 2. Rivedere la PR B (tema scuro, v2.7.1) quando è pronta.
+> 3. Restano aperte le richieste dell'8/11: avviso all'amico (§3.2) e conteggi dei promemoria dopo l'11/11 (§3.3, vedi anche la correzione in §0.3).
 
 ## 0. Piano v2.7 / v2.8 (`docs/PIANO-v2.7.md`)
 
 | PR | Versione | Contenuto | Stato |
 |---|---|---|---|
-| **A** | 2.7.0 | Registro pagamenti in Spese (filtri, modifica, eliminazione) + **Pagato / Previsto** nelle spese annue (grafico, tabella, CSV). I pagamenti dei veicoli eliminati restano come "Veicolo rimosso" (opzione b) | **in revisione**: test verdi in locale, **regole da pubblicare prima del merge** |
-| **B** | 2.7.1 | Tema scuro: token per i ~75 colori scritti a mano, blocco `prefers-color-scheme: dark`, selettore Auto / Chiaro / Scuro in Impostazioni, `theme-color` dinamico, contrasto AA | prossimo passo (indipendente da A) |
+| **A** | 2.7.0 | Registro pagamenti in Spese (filtri, modifica, eliminazione) + **Pagato / Previsto** nelle spese annue (grafico, tabella, CSV). I pagamenti dei veicoli eliminati restano come "Veicolo rimosso" (opzione b) | **IN PRODUZIONE** il 9/11 (§0.1) |
+| **B** | 2.7.1 | Tema scuro: token per i ~75 colori scritti a mano, blocco `prefers-color-scheme: dark`, selettore Auto / Chiaro / Scuro in Impostazioni, `theme-color` dinamico, contrasto AA | **in preparazione** |
 | **C** | 2.8.0 | Parti d'usura (`garages/{g}/wear`): stato da km e tempo, "🔧 Sostituito", badge e avvisi | da fare, nuove regole `wearOk()` |
 | **C2** | 2.8.1 | Promemoria push per le parti d'usura (soglie km/giorni nello script del cron) | da fare dopo C e dopo la decisione sul passo 7 dei promemoria |
 | **D** | 2.8.2 | Export JSON del garage + import additivo, solo per il proprietario, con anteprima | da fare |
@@ -27,6 +27,100 @@
 **Nota di deploy della PR A:** dopo le nuove regole, un client **v2.6.1** ancora aperto che elimina un veicolo prova a cancellare anche i pagamenti. Se a farlo è un membro e i pagamenti sono di altri, quelle cancellazioni vengono respinte (toast d'errore), ma il veicolo viene eliminato e i pagamenti restano: è l'esito voluto dalla (b). La finestra dura finché il telefono non si aggiorna alla 2.7.0.
 
 Schermata del registro (390 px, emulatore): ![](screenshots/v2.7.0-pagamenti-390.png)
+
+### 0.1 Rilascio della v2.7.0 (9/11, sera)
+| Passo | Esito |
+|---|---|
+| Backup dei dati | `firestore-20261109-2143.json` (81 documenti, conteggi uguali all'8/11, 0 pagamenti) e Auth (6 account), fuori dal repo |
+| Backup delle regole pubblicate | ruleset `42869098`, identico a `firestore.rules` di `main` → `docs/rules-backup/pre-v2.7.rules` |
+| Deploy delle regole `payments` | ruleset **`80c23d65`**, sha256 `45013978…` **identico** a `firestore.rules` del branch |
+| Merge della **#17** | `7d179f6`, CI verde (3 controlli), Pages pubblicato |
+| Controllo in produzione (headless, anonimo, 390 px) | cache `garageos-v2.7.0`, login mostrato, sezione Pagamenti servita, **0 errori** in console, pagina e rete, **0 violazioni CSP** anche dopo la ricarica |
+| Rollback | `firebase.rollback.json` → `docs/rules-backup/pre-v2.7.rules` (ruleset `42869098`) |
+
+Rollback, se serve:
+1. Prima l'app: `git revert -m 1 7d179f6`.
+2. Poi le regole: `npx firebase-tools deploy --only firestore:rules --config firebase.rollback.json --project garageos-879bc`.
+
+L'ordine conta: la 2.7.0 con le regole vecchie non riesce a salvare le modifiche ai pagamenti.
+
+### 0.2 Prove dal telefono (registro pagamenti)
+1. **Aggiornamento:** banner "Nuova versione" → una ricarica → Spese ha tre segmenti: ⛽ Rifornimenti · 📊 Annue · 🧾 Pagamenti.
+2. **Registrare:** Scadenze → una scadenza personalizzata con importo → «✅ Fatto» → conferma l'importo. Poi Spese → 🧾 Pagamenti: la riga c'è, con data, veicolo e importo, e il totale in alto.
+3. **Filtri:** l'anno e il veicolo cambiano righe e totale. "Garage (senza veicolo)" compare solo se c'è un pagamento senza veicolo.
+4. **Modifica:** tocca la riga → cambia l'importo (es. da 80,50 a 75) → Salva. Controlla tre cose:
+   - toast "Pagamento aggiornato";
+   - la riga dice "modificato";
+   - il totale e le Spese annue dell'anno cambiano.
+
+   Prova anche "1.500,5" e il campo vuoto: devono essere respinti con un messaggio, senza chiudere la finestra.
+5. **Eliminazione:** tocca la riga → Elimina. Deve comparire la finestra di conferma dell'app (non quella grigia del browser), con «la scadenza non torna indietro». Dopo la conferma il pagamento sparisce dal registro e dalle Spese annue.
+6. **Pagato / Previsto:** Spese → 📊 Annue.
+   - Gli anni futuri con bollo, revisione o assicurazione hanno **una barra tratteggiata blu** (Previsto) e **"€ 0"** nella colonna Pagato.
+   - La tabella ha la colonna **Previsto**.
+   - L'anno in corso mostra nel Pagato solo ciò che è già pagato o già scaduto.
+7. **CSV spese annue:** l'ultima colonna è "Previsto (€)", e "Totale pagato (€)" non contiene le scadenze future.
+8. **Da un membro** (se un familiare collabora): vede il registro e può correggere un pagamento, ma **non vede "Elimina"** su un pagamento registrato da te.
+9. **Veicolo eliminato** (solo se ne hai uno di prova): i suoi pagamenti restano nel registro come "Veicolo rimosso", con il filtro "Veicoli rimossi".
+
+### 0.5 Proposta (da decidere, NON implementata): promemoria puntuali con un cron esterno
+**Problema.** Il cron di GitHub (`'17 6 * * *'`) gira, ma con ore di ritardo: 8/11 alle 13:23 UTC e 9/11 alle 16:17 UTC. Nel piano gratuito GitHub mette in fondo alla coda le esecuzioni `schedule`, e non c'è modo di renderle puntuali.
+
+**Proposta.**
+- Ogni mattina un servizio cron esterno gratuito (es. **cron-job.org**) chiama l'API di GitHub e avvia `reminders.yml` con `workflow_dispatch`, che il workflow ha già.
+- Usa un **token fine-grained** limitato a questo repo, con il solo permesso **Actions: read and write**. GitHub aggiunge in automatico anche *Metadata: read*, obbligatorio.
+- Il cron di GitHub resta come **riserva**.
+
+Cosa c'è già nel codice e rende la proposta sicura senza modifiche:
+- **Idempotenza:** `send-reminders.mjs` registra ogni invio in `pushLog`, creandolo una volta sola. Se nello stesso giorno girano sia l'avvio esterno sia il cron di GitHub, il secondo non manda niente di doppio. Inoltre `concurrency: reminders` mette in fila le due esecuzioni invece di sovrapporle.
+- **Solo `main`:** il job gira solo con `github.ref == refs/heads/main`. La Workload Identity accetta solo `refs/heads/main` e l'environment `reminders` è limitato a `main`. Un avvio su un altro branch non ottiene le credenziali Google.
+- **Filtro `only_uid`:** se l'avvio non lo specifica, vale `REMINDERS_ONLY_UID`. Il filtro attuale resta finché non si decide il passo 7.
+
+**Pro**
+- **Puntuale:** gli avvii `workflow_dispatch` non passano dalla coda bassa dei cron e di norma partono entro pochi secondi o minuti. GitHub non lo garantisce, ma è il meccanismo pensato per gli avvii dall'esterno.
+- **Nessuna modifica al codice o al workflow**, e niente piano Blaze: Cloud Scheduler richiederebbe un account di fatturazione.
+- **Nessun dato personale nella richiesta:** solo il nome del repo e `{"ref":"main","inputs":{"mode":"live"}}`.
+- cron-job.org offre fuso orario (ora legale gestita), storico delle esecuzioni ed email se la chiamata fallisce.
+- Il cron di GitHub resta come riserva, e serve anche per il job **keepalive**, che riattiva il workflow prima dei 60 giorni di inattività e gira con le esecuzioni pianificate.
+
+**Contro e rischi**
+- **Il token sta su un servizio di terzi.** Chi lo ottenesse potrebbe, solo su questo repo:
+  - avviare il workflow, ma l'idempotenza evita le notifiche doppie;
+  - annullare o rilanciare esecuzioni, cancellare log, disattivare workflow.
+
+  Non può leggere i segreti né toccare il codice, le regole o i dati. In caso di sospetto basta revocarlo dalle impostazioni di GitHub.
+- **Il token scade:** si consiglia 1 anno. GitHub manda un'email prima della scadenza, ma va rinnovato a mano anche su cron-job.org. Senza rinnovo restano solo i cron in ritardo.
+- **Attenzione all'input `mode`:** il default dell'avvio manuale è `dry-run`. Se il corpo della chiamata non contiene `"mode":"live"`, ogni mattina gira una simulazione silenziosa. Va verificato al primo avvio (sotto).
+- **Un account in più** da gestire. Le esecuzioni risultano avviate dal titolare del token, cioè da te.
+- Nessuna garanzia contrattuale sui tempi, né da parte di cron-job.org né da parte di GitHub.
+
+**Passi (quando decidi)**
+1. **Token.** GitHub → Settings → Developer settings → Fine-grained tokens:
+   - Repository access: *Only select repositories* → `garageos-v2`;
+   - Permissions: *Actions: Read and write*;
+   - scadenza 1 anno, da segnare in calendario.
+2. **Prova dal PC con un dry-run** (senza inviare nulla):
+   `curl -X POST -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/lucsor/garageos-v2/actions/workflows/reminders.yml/dispatches -d '{"ref":"main","inputs":{"mode":"dry-run"}}'`
+
+   Atteso: risposta **204**, e in Actions un'esecuzione `workflow_dispatch` che si avvia in pochi secondi.
+3. **Job su cron-job.org:**
+   - URL come sopra, metodo **POST**;
+   - intestazioni `Authorization`, `Accept`, `X-GitHub-Api-Version`;
+   - corpo `{"ref":"main","inputs":{"mode":"live"}}`;
+   - fuso **Europe/Rome**, ogni giorno alle **07:15**;
+   - notifica email se la risposta non è 2xx.
+4. **Primi 3 giorni.** Con `gh run list --workflow "Promemoria scadenze"` controlla che ogni mattina ci sia un'esecuzione `workflow_dispatch` puntuale, in modalità `live`, con l'invio nei conteggi del log. Il cron di GitHub, che arriva dopo, deve risultare senza nuovi invii.
+5. **Poi (piccola PR):**
+   - si può spostare il cron di GitHub più avanti, come riserva esplicita (es. `'17 9 * * *'`), lasciandolo comunque attivo per il keepalive;
+   - si aggiornano `docs/PUSH.md` e questo STATO con la data di scadenza del token.
+6. **Per tornare indietro:** si disattiva il job su cron-job.org e si revoca il token. Resta il cron di GitHub, come oggi.
+
+### 0.3 Correzione sul cron dei promemoria
+L'8/11 avevo scritto che la prima esecuzione pianificata era stata **saltata**: non è così. Era solo **molto in ritardo**. `gh run list` ora mostra due esecuzioni `schedule` riuscite:
+- 8/11 alle 13:23 UTC (previsto 06:17);
+- 9/11 alle 16:17 UTC.
+
+GitHub, nel piano gratuito, ritarda i cron anche di ore. Lo script è idempotente, quindi un orario di riserva non serve. Se un ritardo di 7–10 ore è un problema per l'ora in cui ricevi la notifica, si può valutare un orario anticipato.
 
 ---
 
