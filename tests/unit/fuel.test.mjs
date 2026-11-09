@@ -204,7 +204,8 @@ test('CSV: rifornimenti e spese con decimali alla italiana, avvisi km', () => {
   assert.equal(rows[2][7], '=cmd');                // la neutralizzazione la fa csvSafe al momento del download
   assert.match(rows[2][9], /km inferiori/);
   const s = spendingCsvRows([{ year: 2026, vehicleId: 'v1', interventi: 100, scadenze: 0, carburante: 70.5, total: 170.5, liters: 40 }], () => 'AB123CD');
-  assert.deepEqual(s[1], ['2026', 'AB123CD', '100,00', '0,00', '70,50', '170,50', '40,00']);
+  assert.deepEqual(s[1], ['2026', 'AB123CD', '100,00', '0,00', '70,50', '170,50', '40,00', '0,00']);
+  assert.deepEqual(s[0].slice(-3), ['Totale pagato (€)', 'Litri', 'Previsto (€)']);
 });
 
 test('i limiti del client coincidono con quelli di firestore.rules', () => {
@@ -255,8 +256,8 @@ test('pagamenti del "✅ Fatto": precompilazione, modulo, spese annue, limiti = 
   assert.equal(paymentFromForm({ amount: '1000001', date: '2026-11-08' }).ok, false);
   const ex = paymentExtras([{ vehicleId: 'v1', date: '2026-11-08', amount: 80.5 }, { vehicleId: null, date: '2027-01-02', amount: 30 },
     { vehicleId: 'v1', date: '', amount: 10 }, { vehicleId: 'v1', date: '2026-01-01', amount: 0 }]);
-  assert.deepEqual(ex, [{ vehicleId: 'v1', date: '2026-11-08', amount: 80.5, category: 'scadenze' },
-    { vehicleId: '', date: '2027-01-02', amount: 30, category: 'scadenze' }]);
+  assert.deepEqual(ex, [{ vehicleId: 'v1', date: '2026-11-08', amount: 80.5, category: 'scadenze', planned: false },
+    { vehicleId: '', date: '2027-01-02', amount: 30, category: 'scadenze', planned: false }]);
   const { rows } = spendingRows({ extras: ex });
   assert.equal(rows.find((r) => r.year === 2026 && r.vehicleId === 'v1').scadenze, 80.5);
   const rules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');

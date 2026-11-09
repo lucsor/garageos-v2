@@ -4,7 +4,7 @@
 //  - in Firestore: numeri veri, timestamp del server, autore
 //  - "Fatto" su una ricorrente sposta la data; su una singola la elimina (dopo conferma)
 //  - un membro del garage la vede; modifica ed eliminazione
-//  - cancellando il veicolo spariscono anche le sue scadenze personalizzate
+//  - cancellando il veicolo spariscono anche le sue scadenze personalizzate (i pagamenti restano: v2.7.0)
 // Prerequisiti: emulatori auth+firestore --project garageos-879bc, app su http://127.0.0.1:5173. Uso: node deadlines.e2e.mjs
 import { chromium } from 'playwright-core';
 import { readFileSync } from 'node:fs';
@@ -173,12 +173,9 @@ for (let i = 0; i < 20 && !gone; i++) {
   if (!gone) await page.waitForTimeout(300);
 }
 check(gone, 'eliminando il veicolo vengono eliminate anche le sue scadenze personalizzate');
-let payGone = false;
-for (let i = 0; i < 20 && !payGone; i++) {
-  payGone = (await db.collection(`garages/${uid}/payments`).get()).empty;
-  if (!payGone) await page.waitForTimeout(300);
-}
-check(payGone, '... e i suoi pagamenti');
+// v2.7.0: i pagamenti restano nello storico delle spese ("Veicolo rimosso")
+const payLeft = (await db.collection(`garages/${uid}/payments`).get()).size;
+check(payLeft === 1, `... ma i suoi pagamenti restano nello storico (${payLeft})`);
 
 const csp = [...new Set(await page.evaluate(() => window.__csp))];
 check(csp.length === 0, `nessuna violazione CSP${csp.length ? ': ' + csp.join(' | ') : ''}`);

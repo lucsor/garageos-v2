@@ -21,6 +21,7 @@ import { createPush, DAY_OPTIONS } from './push.js';
 import { initLegacyBanner } from './legacy-banner.js';
 import { deadlineEvents, deadlineEvent, customDeadlineEvent, buildICS, icsFilename, shareOrDownloadICS, googleCalendarUrl, deviceKind, localToday } from './ics.js';
 import { DEADLINE_KINDS, REPEAT_OPTIONS, deadlineKind, collectDeadlines, advanceDue, deadlineFromForm } from './deadlines.js';
+import { paymentLedger, ledgerYears, ledgerTotal, paymentPatch, canDeletePayment } from './payments.js';
 const KIND_ICONS = Object.fromEntries(DEADLINE_KINDS.map(k => [k.id, k.icon]));
 
 // ===== FIREBASE CONFIG =====
@@ -571,7 +572,8 @@ async function removeVehicle(id) {
     ...data.mechs.filter(m => m.vehicleId === id).map(m => deleteDoc(vDoc('mechs', m.id))),
     ...data.refuels.filter(r => r.vehicleId === id).map(r => deleteDoc(vDoc('refuels', r.id))),
     ...data.deadlines.filter(d => d.vehicleId === id).map(d => deleteDoc(vDoc('deadlines', d.id))),
-    ...data.payments.filter(p => p.vehicleId === id).map(p => deleteDoc(vDoc('payments', p.id))),
+    // i pagamenti NO (v2.7.0): restano nello storico delle spese come "Veicolo rimosso". Le regole permettono di
+    // eliminarli solo all'autore o al proprietario, quindi un membro non potrebbe comunque cancellare quelli altrui.
   ]);
 }
 async function removeTire(id) { await deleteDoc(vDoc('tires', id)); }
@@ -892,6 +894,7 @@ function closeModal(id) {
     document.getElementById('r-edit-id').value = '';
     showRefuelErrors(null);
   }
+  if (id === 'payment-edit-modal') showPeError('');
   if (id === 'mech-modal') {
     document.getElementById('m-edit-id').value = '';
     document.getElementById('mech-modal-title').textContent = 'Aggiungi Intervento';
@@ -1115,10 +1118,10 @@ async function confirmDeadlineDone() {
 }
 function switchSpeseSub(name) {
   currentSpeseSub = name;
-  document.getElementById('seg-rifornimenti').classList.toggle('active', name === 'rifornimenti');
-  document.getElementById('seg-annue').classList.toggle('active', name === 'annue');
-  document.getElementById('subsection-rifornimenti').style.display = name === 'rifornimenti' ? '' : 'none';
-  document.getElementById('subsection-annue').style.display = name === 'annue' ? '' : 'none';
+  for (const sub of ['rifornimenti', 'annue', 'pagamenti']) {
+    document.getElementById('seg-' + sub).classList.toggle('active', name === sub);
+    document.getElementById('subsection-' + sub).style.display = name === sub ? '' : 'none';
+  }
 }
 
 // ===== BUTTON LOADING =====
@@ -1936,7 +1939,8 @@ function renderRifornimenti() {
 // ===== SPESE ANNUE =====
 // Scadenze con importo (bollo/revisione/assicurazione dei veicoli e personalizzate), nell'anno della loro data
 function spendingExtras() {
-  return [...deadlineExtras(collectDeadlines(data.vehicles, data.deadlines), data.mechs), ...paymentExtras(data.payments)];
+  // scadenze con data futura = "previste" (non ancora pagate): colonna separata, fuori dal totale pagato
+  return [...deadlineExtras(collectDeadlines(data.vehicles, data.deadlines), data.mechs, localToday()), ...paymentExtras(data.payments)];
 }
 const CAT_LABEL = { interventi: 'Interventi', scadenze: 'Scadenze', carburante: 'Carburante' };
 // '' = scadenza di tutto il garage (F2, senza veicolo); id sconosciuto = veicolo eliminato
@@ -1955,8 +1959,9 @@ function renderSpeseAnnue() {
   const body = document.getElementById('spese-body');
   const { rows, undated } = spendingRows({ mechs: data.mechs, refuels: data.refuels, extras: spendingExtras() });
   const years = totalsByYear(rows, fv);
-  const note = `<p class="cal-hint">Comprende tutto ciò che ha un importo, nell'anno della sua data: interventi (costi multi-tipo contati una volta),
-    rifornimenti, e scadenze con importo (bollo, revisione, assicurazione e scadenze personalizzate, alla data di scadenza: anche quelle future).
+  const note = `<p class="cal-hint"><b>Pagato</b>: interventi (costi multi-tipo contati una volta), rifornimenti, pagamenti registrati con «✅ Fatto»
+    e scadenze con importo già passate, nell'anno della loro data. <b>Previsto</b>: scadenze con importo e data futura (bollo, revisione,
+    assicurazione e scadenze personalizzate), non ancora pagate: non entrano nel totale.
     Una scadenza del veicolo non viene contata se nello stesso anno c'è già un intervento dello stesso tipo (es. "✅ Rinnovata").
     ${undated > 0 ? `Esclusi ${euro0(undated)} di interventi senza data.` : ''}</p>`;
   if (!years.length) {
@@ -1964,23 +1969,28 @@ function renderSpeseAnnue() {
     return;
   }
   const shown = years.slice(-8);
-  const max = Math.max(...shown.map(y => y.total), 1);
-  const aria = shown.map(y => `${y.year}: ${fmtEuro(y.total)}`).join('; ');
+  // barra piena = pagato (per categoria); sopra, tratteggiata, il previsto. Scala comune pagato + previsto.
+  const max = Math.max(...shown.map(y => y.total + y.planned), 1);
+  const aria = shown.map(y => `${y.year}: pagato ${fmtEuro(y.total)}${y.planned > 0 ? `, previsto ${fmtEuro(y.planned)}` : ''}`).join('; ');
   let html = `<div class="spend-chart" id="spend-chart" role="img" aria-label="Spese per anno — ${esc(aria)}">` + shown.map(y => {
-    const h = Math.max(4, Math.round((y.total / max) * 110));
+    const h = y.total > 0 ? Math.max(4, Math.round((y.total / max) * 110)) : 0;
+    const hp = y.planned > 0 ? Math.max(4, Math.round((y.planned / max) * 110)) : 0;
     const segs = CATEGORIES.filter(c => y[c] > 0)
       .map(c => `<div class="sp-seg ${c}" style="height:${(y[c] / y.total * 100).toFixed(2)}%" title="${CAT_LABEL[c]}: ${esc(fmtEuro(y[c]))}"></div>`).join('');
     return `<div class="sp-col" data-year="${y.year}">
-      <div class="cc-val">${euro0(y.total)}</div>
-      <div class="sp-stack" style="height:${h}px">${segs}</div>
+      <div class="cc-val">${y.total > 0 || !y.planned ? euro0(y.total) : ''}${y.planned > 0 ? `<span class="cc-planned">${y.total > 0 ? '+' : ''}${euro0(y.planned)}</span>` : ''}</div>
+      ${hp ? `<div class="sp-planned" style="height:${hp}px" title="Previsto: ${esc(fmtEuro(y.planned))}"></div>` : ''}
+      ${h ? `<div class="sp-stack" style="height:${h}px">${segs}</div>` : ''}
       <div class="cc-year">${y.year}</div>
     </div>`;
   }).join('') + `</div>`;
-  html += `<div class="sp-legend">${CATEGORIES.map(c => `<span><i class="sp-key ${c}"></i>${CAT_LABEL[c]}</span>`).join('')}</div>`;
+  const anyPlanned = years.some(y => y.planned > 0);
+  html += `<div class="sp-legend">${CATEGORIES.map(c => `<span><i class="sp-key ${c}"></i>${CAT_LABEL[c]}</span>`).join('')}`
+    + `${anyPlanned ? '<span><i class="sp-key planned"></i>Previsto</span>' : ''}</div>`;
   html += `<div class="spend-table-wrap"><table class="spend-table"><thead><tr><th scope="col">Anno</th><th scope="col">Interventi</th>
-    <th scope="col">Scadenze</th><th scope="col">Carburante</th><th scope="col">Totale</th></tr></thead><tbody>`
+    <th scope="col">Scadenze</th><th scope="col">Carburante</th><th scope="col">Pagato</th><th scope="col">Previsto</th></tr></thead><tbody>`
     + [...years].reverse().map(y => `<tr data-year="${y.year}"><td>${y.year}</td><td>${euro0(y.interventi)}</td><td>${euro0(y.scadenze)}</td>
-      <td>${euro0(y.carburante)}</td><td class="tot">${euro0(y.total)}</td></tr>`).join('')
+      <td>${euro0(y.carburante)}</td><td class="tot">${euro0(y.total)}</td><td class="planned">${y.planned > 0 ? euro0(y.planned) : '—'}</td></tr>`).join('')
     + `</tbody></table></div>`;
   // per veicolo, nell'anno scelto (solo con "Tutti i veicoli")
   if (!fv) {
@@ -2009,6 +2019,7 @@ function renderSpese() {
     ? `⚠️ Rifornimenti non disponibili (${data.refuelsError}): le spese annue non comprendono il carburante.` : '';
   renderRifornimenti();
   renderSpeseAnnue();
+  renderPagamenti();
 }
 function exportRefuelsCSV() {
   const fv = document.getElementById('fuel-filter-vehicle').value;
@@ -2028,6 +2039,86 @@ function exportSpeseCSV() {
   if (!list.length) { _showToast('Nessuna spesa da esportare', 'yellow'); return; }
   downloadCSV(`garageos-spese-annue-${localToday()}.csv`, spendingCsvRows(list, id => id ? vehicleLabel(id) : 'Garage (senza veicolo)'));
   _showToast('⬇️ CSV spese annue scaricato');
+}
+
+// ===== REGISTRO PAGAMENTI (v2.7.0) =====
+// I pagamenti registrati con "✅ Fatto": filtro per anno e veicolo, totale, modifica (importo, data, descrizione)
+// ed eliminazione (solo l'autore o il proprietario, come le regole). Vedi js/payments.js.
+function renderPagamenti() {
+  const ysel = document.getElementById('pay-filter-year');
+  const vsel = document.getElementById('pay-filter-vehicle');
+  if (!ysel || !vsel) return;
+  const prevY = ysel.value, prevV = vsel.value;
+  const years = ledgerYears(data.payments);
+  ysel.innerHTML = `<option value="">Tutti gli anni</option>`
+    + years.map(y => `<option value="${y}" ${String(y) === prevY ? 'selected' : ''}>${y}</option>`).join('');
+  const known = data.vehicles.map(v => v.id);
+  const hasNoVehicle = data.payments.some(p => !p.vehicleId);
+  const hasRemoved = data.payments.some(p => p.vehicleId && !known.includes(p.vehicleId));
+  vsel.innerHTML = vehicleSelectOptions(data.vehicles, prevV)
+    + (hasNoVehicle ? `<option value="-" ${prevV === '-' ? 'selected' : ''}>Garage (senza veicolo)</option>` : '')
+    + (hasRemoved ? `<option value="?" ${prevV === '?' ? 'selected' : ''}>Veicoli rimossi</option>` : '');
+  const rows = paymentLedger(data.payments, { year: Number(ysel.value) || null, vehicleId: vsel.value, knownVehicleIds: known });
+  document.getElementById('pay-total').textContent = rows.length
+    ? `${rows.length} ${rows.length === 1 ? 'pagamento' : 'pagamenti'} · totale ${fmtEuro(ledgerTotal(rows))}` : '';
+  document.getElementById('pay-empty').hidden = rows.length > 0;
+  document.getElementById('pay-list').innerHTML = rows.map(p => `<li class="ledger-row" data-id="${esc(p.id)}">
+      <button class="ledger-btn" data-action="pay-edit" data-id="${esc(p.id)}" aria-label="Modifica pagamento ${esc(p.label)}, ${esc(fmtEuro(toNum(p.amount)))}">
+        <span class="ledger-main"><span class="ledger-label">${esc(KIND_ICONS[p.kind] || '📌')} ${esc(p.label)}</span>
+          <span class="ledger-sub">${esc(formatDate(p.date))} · ${esc(spendVehicleName(p.vehicleId))}${p.editedBy ? ' · <span class="ledger-edited">modificato</span>' : ''}</span></span>
+        <span class="ledger-amt">${esc(fmtEuro(toNum(p.amount)))}</span>
+      </button>
+    </li>`).join('');
+}
+function showPeError(msg) {
+  const box = document.getElementById('pe-error');
+  box.textContent = msg; box.hidden = !msg;
+}
+function openPaymentEdit(id) {
+  const p = data.payments.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('pe-id').value = id;
+  document.getElementById('pe-label').value = p.label || '';
+  document.getElementById('pe-amount').value = toField(p.amount);
+  document.getElementById('pe-date').value = p.date || '';
+  document.getElementById('pe-info').textContent = `Registrato da ${p.addedBy || '?'}`
+    + (p.editedBy ? ` · ultima modifica di ${p.editedBy}` : '') + ` · ${spendVehicleName(p.vehicleId)}`;
+  document.getElementById('btn-pay-delete').hidden = !canDeletePayment(p, { isOwner, email: currentUser?.email });
+  showPeError('');
+  openModal('payment-edit-modal');
+}
+async function savePaymentEdit() {
+  const id = document.getElementById('pe-id').value;
+  const p = data.payments.find(x => x.id === id);
+  if (!p) { closeModal('payment-edit-modal'); _showToast('Il pagamento non esiste più', 'yellow'); return; }
+  const res = paymentPatch({
+    label: document.getElementById('pe-label').value,
+    amount: document.getElementById('pe-amount').value,
+    date: document.getElementById('pe-date').value,
+  }, p);
+  if (!res.ok) { showPeError(res.error); return; }
+  closeModal('payment-edit-modal');
+  if (!res.changed) return;
+  try {
+    // solo i campi cambiati + editedBy/updatedAt: le regole respingono qualunque altro campo toccato
+    await written(setDoc(vDoc('payments', id), {
+      ...res.patch, editedBy: (currentUser?.email || '').toLowerCase(), updatedAt: serverTimestamp(),
+    }, { merge: true }));
+    _showToast('✅ Pagamento aggiornato');
+  } catch(e) {
+    _showToast(e.code === 'permission-denied' ? 'Modifica non consentita: le regole del database non sono ancora aggiornate' : 'Errore: ' + (e.code || e.message), 'red');
+  }
+}
+async function deletePayment() {
+  const id = document.getElementById('pe-id').value;
+  const p = data.payments.find(x => x.id === id);
+  if (!p) { closeModal('payment-edit-modal'); return; }
+  if (!await showConfirm(`Eliminare il pagamento "${p.label}" di ${fmtEuro(toNum(p.amount))}? Esce dalle spese; la scadenza non torna indietro.`)) return;
+  closeModal('payment-edit-modal');
+  try { await written(deleteDoc(vDoc('payments', id))); _showToast('🗑️ Pagamento eliminato'); }
+  catch(e) {
+    _showToast(e.code === 'permission-denied' ? 'Solo chi l’ha registrato o il proprietario può eliminarlo' : 'Errore: ' + (e.code || e.message), 'red');
+  }
 }
 
 // ===== RENDER: FAMIGLIA =====
@@ -2200,6 +2291,9 @@ const ACTIONS = {
   'edit-deadline':    d => openDeadlineModal(d.id),
   'deadline-done':    d => deadlineDone(d.id),
   'confirm-deadline-done': () => confirmDeadlineDone(),
+  'pay-edit':         d => openPaymentEdit(d.id),
+  'pay-save':         () => savePaymentEdit(),
+  'pay-delete':       () => deletePayment(),
 };
 const CHANGES = {
   'deadline-kind': () => onDeadlineKindChange(),
@@ -2209,13 +2303,15 @@ const CHANGES = {
   'rifornimenti': () => renderRifornimenti(),
   'spese':      () => renderSpeseAnnue(),
   'spese-year': () => { _speseYear = Number(document.getElementById('spese-year').value) || null; renderSpeseAnnue(); },
+  'pay-filter': () => renderPagamenti(),
 };
 // Azioni che scrivono su Firestore: bloccate finché il garage non è risolto (evita scritture su garages/null)
 const NEEDS_GARAGE = new Set(['fab', 'open-modal', 'save-vehicle', 'save-tire', 'save-mech', 'save-garage-name',
   'send-invite', 'revoke-invite', 'remove-member', 'remove-legacy', 'leave-garage', 'renew',
   'delete-vehicle', 'delete-tire', 'delete-mech', 'edit-vehicle', 'edit-tire', 'edit-mech',
   'add-refuel', 'save-refuel', 'edit-refuel', 'delete-refuel',
-  'save-deadline', 'delete-deadline', 'edit-deadline', 'deadline-done', 'confirm-deadline-done']);
+  'save-deadline', 'delete-deadline', 'edit-deadline', 'deadline-done', 'confirm-deadline-done',
+  'pay-edit', 'pay-save', 'pay-delete']);
 // Esc chiude la finestra aperta in primo piano (tutte le modali tranne la conferma, che ha i suoi pulsanti)
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
