@@ -63,6 +63,58 @@ L'ordine conta: la 2.7.0 con le regole vecchie non riesce a salvare le modifiche
 8. **Da un membro** (se un familiare collabora): vede il registro e può correggere un pagamento, ma **non vede "Elimina"** su un pagamento registrato da te.
 9. **Veicolo eliminato** (solo se ne hai uno di prova): i suoi pagamenti restano nel registro come "Veicolo rimosso", con il filtro "Veicoli rimossi".
 
+### 0.5 Proposta (da decidere, NON implementata): promemoria puntuali con un cron esterno
+**Problema.** Il cron di GitHub (`'17 6 * * *'`) gira, ma con ore di ritardo: 8/11 alle 13:23 UTC e 9/11 alle 16:17 UTC. Nel piano gratuito GitHub mette in fondo alla coda le esecuzioni `schedule`, e non c'è modo di renderle puntuali.
+
+**Proposta.**
+- Ogni mattina un servizio cron esterno gratuito (es. **cron-job.org**) chiama l'API di GitHub e avvia `reminders.yml` con `workflow_dispatch`, che il workflow ha già.
+- Usa un **token fine-grained** limitato a questo repo, con il solo permesso **Actions: read and write**. GitHub aggiunge in automatico anche *Metadata: read*, obbligatorio.
+- Il cron di GitHub resta come **riserva**.
+
+Cosa c'è già nel codice e rende la proposta sicura senza modifiche:
+- **Idempotenza:** `send-reminders.mjs` registra ogni invio in `pushLog`, creandolo una volta sola. Se nello stesso giorno girano sia l'avvio esterno sia il cron di GitHub, il secondo non manda niente di doppio. Inoltre `concurrency: reminders` mette in fila le due esecuzioni invece di sovrapporle.
+- **Solo `main`:** il job gira solo con `github.ref == refs/heads/main`. La Workload Identity accetta solo `refs/heads/main` e l'environment `reminders` è limitato a `main`. Un avvio su un altro branch non ottiene le credenziali Google.
+- **Filtro `only_uid`:** se l'avvio non lo specifica, vale `REMINDERS_ONLY_UID`. Il filtro attuale resta finché non si decide il passo 7.
+
+**Pro**
+- **Puntuale:** gli avvii `workflow_dispatch` non passano dalla coda bassa dei cron e di norma partono entro pochi secondi o minuti. GitHub non lo garantisce, ma è il meccanismo pensato per gli avvii dall'esterno.
+- **Nessuna modifica al codice o al workflow**, e niente piano Blaze: Cloud Scheduler richiederebbe un account di fatturazione.
+- **Nessun dato personale nella richiesta:** solo il nome del repo e `{"ref":"main","inputs":{"mode":"live"}}`.
+- cron-job.org offre fuso orario (ora legale gestita), storico delle esecuzioni ed email se la chiamata fallisce.
+- Il cron di GitHub resta come riserva, e serve anche per il job **keepalive**, che riattiva il workflow prima dei 60 giorni di inattività e gira con le esecuzioni pianificate.
+
+**Contro e rischi**
+- **Il token sta su un servizio di terzi.** Chi lo ottenesse potrebbe, solo su questo repo:
+  - avviare il workflow, ma l'idempotenza evita le notifiche doppie;
+  - annullare o rilanciare esecuzioni, cancellare log, disattivare workflow.
+
+  Non può leggere i segreti né toccare il codice, le regole o i dati. In caso di sospetto basta revocarlo dalle impostazioni di GitHub.
+- **Il token scade:** si consiglia 1 anno. GitHub manda un'email prima della scadenza, ma va rinnovato a mano anche su cron-job.org. Senza rinnovo restano solo i cron in ritardo.
+- **Attenzione all'input `mode`:** il default dell'avvio manuale è `dry-run`. Se il corpo della chiamata non contiene `"mode":"live"`, ogni mattina gira una simulazione silenziosa. Va verificato al primo avvio (sotto).
+- **Un account in più** da gestire. Le esecuzioni risultano avviate dal titolare del token, cioè da te.
+- Nessuna garanzia contrattuale sui tempi, né da parte di cron-job.org né da parte di GitHub.
+
+**Passi (quando decidi)**
+1. **Token.** GitHub → Settings → Developer settings → Fine-grained tokens:
+   - Repository access: *Only select repositories* → `garageos-v2`;
+   - Permissions: *Actions: Read and write*;
+   - scadenza 1 anno, da segnare in calendario.
+2. **Prova dal PC con un dry-run** (senza inviare nulla):
+   `curl -X POST -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/lucsor/garageos-v2/actions/workflows/reminders.yml/dispatches -d '{"ref":"main","inputs":{"mode":"dry-run"}}'`
+
+   Atteso: risposta **204**, e in Actions un'esecuzione `workflow_dispatch` che si avvia in pochi secondi.
+3. **Job su cron-job.org:**
+   - URL come sopra, metodo **POST**;
+   - intestazioni `Authorization`, `Accept`, `X-GitHub-Api-Version`;
+   - corpo `{"ref":"main","inputs":{"mode":"live"}}`;
+   - fuso **Europe/Rome**, ogni giorno alle **07:15**;
+   - notifica email se la risposta non è 2xx.
+4. **Primi 3 giorni.** Con `gh run list --workflow "Promemoria scadenze"` controlla che ogni mattina ci sia un'esecuzione `workflow_dispatch` puntuale, in modalità `live`, con l'invio nei conteggi del log. Il cron di GitHub, che arriva dopo, deve risultare senza nuovi invii.
+5. **Poi (piccola PR):**
+   - si può spostare il cron di GitHub più avanti, come riserva esplicita (es. `'17 9 * * *'`), lasciandolo comunque attivo per il keepalive;
+   - si aggiornano `docs/PUSH.md` e questo STATO con la data di scadenza del token.
+6. **Per tornare indietro:** si disattiva il job su cron-job.org e si revoca il token. Resta il cron di GitHub, come oggi.
+
 ### 0.3 Correzione sul cron dei promemoria
 L'8/11 avevo scritto che la prima esecuzione pianificata era stata **saltata**: non è così. Era solo **molto in ritardo**. `gh run list` ora mostra due esecuzioni `schedule` riuscite:
 - 8/11 alle 13:23 UTC (previsto 06:17);
