@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.7.0] — non ancora pubblicata
+### Novità
+- **Registro pagamenti** (Spese → **🧾 Pagamenti**): i pagamenti registrati con «✅ Fatto», dal più recente, con filtro per anno e per veicolo (anche "Garage (senza veicolo)" e "Veicoli rimossi") e il totale. Toccando un pagamento si correggono **importo, data e descrizione**; compare "modificato". **Elimina** (con il modale di conferma dell'app) solo per chi l'ha registrato o per il proprietario del garage: la scadenza non torna indietro.
+- **Pagato / Previsto nelle Spese annue:** le scadenze con importo e **data futura** (bollo, revisione, assicurazione, scadenze personalizzate) non entrano più nel totale. Compaiono a parte come **Previsto**: barra tratteggiata nel grafico, colonna nella tabella e colonna `Previsto (€)` in fondo al CSV, dove "Totale" diventa "Totale pagato". Le scadenze già passate restano contate come prima.
+- Il segmento "📊 Spese annue" diventa "📊 Annue", per far stare tre segmenti a 360 px.
+### Modifiche
+- **Eliminando un veicolo i pagamenti restano** nello storico delle spese come "Veicolo rimosso" (prima venivano cancellati, v2.6.1).
+### Sicurezza
+- Regole `payments`: l'update tocca solo `amount`, `date`, `label`, `editedBy` (= chi scrive) e `updatedAt` (ora del server), quindi collegamento, autore e `createdAt` restano fissi. La create non può contenere `editedBy`. La delete è permessa **solo all'autore o al proprietario**. Vanno **pubblicate prima dell'app**.
+### Sviluppo
+- Modulo puro `js/payments.js` con `tests/unit/payments.test.mjs`. Test delle regole PY-P01…PY-P10, e2e `tests/e2e/payments.e2e.mjs` (in CI). Piano: `docs/PIANO-v2.7.md`.
+
 ## [2.6.1] — 2026-11-08
 ### Novità
 - **"✅ Fatto" registra il pagamento:** si apre una finestra con l'**importo pagato**, precompilato con il costo previsto della scadenza e modificabile, e la data del pagamento (oggi). L'importo entra nelle **Spese** dell'anno del pagamento, categoria Scadenze. Vuoto = nessun pagamento registrato. La scadenza ricorrente avanza come prima; quella singola viene tolta, ma il pagamento resta nello storico delle spese.

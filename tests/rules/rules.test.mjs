@@ -614,7 +614,7 @@ describe(`Regole: ${RULES}`, () => {
       await assertSucceeds(setDoc(pref(ctx(MEMBER), 'b'), ok(MEMBER, { vehicleId: null })));
       await assertSucceeds(setDoc(pref(ctx(MEMBER), 'c'), (({ vehicleId, ...x }) => x)(ok(MEMBER))));
       await assertSucceeds(getDocs(collection(ctx(MEMBER), 'garages', GID, 'payments')));
-      await assertSucceeds(updateDoc(pref(ctx(MEMBER), 'a'), { amount: 90, updatedAt: serverTimestamp() }));
+      await assertSucceeds(updateDoc(pref(ctx(MEMBER), 'a'), { amount: 90, editedBy: email(MEMBER), updatedAt: serverTimestamp() }));
       await assertSucceeds(deleteDoc(pref(ctx(OWNER), 'b')));
     });
     test('PY02 non membri, anonimi e altri garage: niente', async () => {
@@ -632,7 +632,7 @@ describe(`Regole: ${RULES}`, () => {
         await assertFails(setDoc(pref(db, 'x'), ok(MEMBER, bad)));
       }
       await seed();
-      await assertFails(updateDoc(pref(db), { amount: '90', updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(pref(db), { amount: '90', editedBy: email(MEMBER), updatedAt: serverTimestamp() }));
     });
     test('PY04 campi non validi, extra o mancanti negati', async () => {
       const db = ctx(MEMBER);
@@ -651,6 +651,72 @@ describe(`Regole: ${RULES}`, () => {
       await assertFails(updateDoc(pref(db), { addedBy: email(MEMBER), updatedAt: serverTimestamp() }));
       await assertFails(updateDoc(pref(db), { createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
       await assertFails(updateDoc(pref(db), { amount: 91 }));
+    });
+
+    // v2.7.0 — registro pagamenti: update ristretto, delete solo autore o proprietario (docs/PIANO-v2.7.md §2.2;
+    // prefisso PY- perché P01…P10 sono già i casi dell'audit)
+    const ed = (uid = MEMBER, extra = {}) => ({ editedBy: email(uid), updatedAt: serverTimestamp(), ...extra });
+    const seedBy = (uid, id = 'p1') => env.withSecurityRulesDisabled((c) => setDoc(pref(c.firestore(), id), {
+      deadlineId: 'dl1abc', kind: 'ztl', label: 'Permesso ZTL', vehicleId: 'mk1abc2def', date: '2026-11-01', amount: 80,
+      addedBy: email(uid), createdAt: Timestamp.fromMillis(Date.now() - DAY), updatedAt: Timestamp.fromMillis(Date.now() - DAY),
+    }));
+    test('PY-P01 un membro corregge importo, data ed etichetta (editedBy = sé, updatedAt = ora del server)', async () => {
+      await seed();
+      const db = ctx(MEMBER);
+      await assertSucceeds(updateDoc(pref(db), ed(MEMBER, { amount: 75 })));
+      await assertSucceeds(updateDoc(pref(db), ed(MEMBER, { date: '2026-10-31', label: 'ZTL Milano' })));
+      await assertSucceeds(setDoc(pref(ctx(OWNER)), ed(OWNER, { amount: 76.5 }), { merge: true }));
+    });
+    test('PY-P02 data in formato non valido: negata', async () => {
+      await seed();
+      for (const date of ['31/10/2026', '2026-1-1', '', 20261031]) {
+        await assertFails(updateDoc(pref(ctx(MEMBER)), ed(MEMBER, { date })));
+      }
+    });
+    test('PY-P03 deadlineId, kind e vehicleId non si cambiano', async () => {
+      await seed();
+      const db = ctx(MEMBER);
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { deadlineId: 'altro1' })));
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { kind: 'telepass' })));
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { vehicleId: 'mk1abc2def' })));
+    });
+    test('PY-P04 addedBy e createdAt non si cambiano', async () => {
+      await seed();
+      const db = ctx(MEMBER);
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { addedBy: email(MEMBER) })));
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { createdAt: serverTimestamp() })));
+    });
+    test('PY-P05 editedBy diverso da chi scrive, mancante, o updatedAt non del server: negato', async () => {
+      await seed();
+      const db = ctx(MEMBER);
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { amount: 70, editedBy: email(OWNER) })));
+      await assertFails(updateDoc(pref(db), { amount: 70, updatedAt: serverTimestamp() }));
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { amount: 70, updatedAt: Timestamp.fromMillis(Date.now()) })));
+      await assertFails(updateDoc(pref(db), ed(MEMBER, { amount: 70, editedBy: 'x'.repeat(255) })));
+    });
+    test('PY-P06 create con editedBy: negata', async () => {
+      await assertFails(setDoc(pref(ctx(MEMBER), 'x'), ok(MEMBER, { editedBy: email(MEMBER) })));
+      await assertSucceeds(setDoc(pref(ctx(MEMBER), 'x'), ok(MEMBER)));
+    });
+    test('PY-P07 l’autore (membro) elimina il proprio pagamento', async () => {
+      await seedBy(MEMBER);
+      await assertSucceeds(deleteDoc(pref(ctx(MEMBER))));
+    });
+    test('PY-P08 un membro non autore non elimina', async () => {
+      await seedBy(OWNER);
+      await assertFails(deleteDoc(pref(ctx(MEMBER))));
+    });
+    test('PY-P09 il proprietario elimina anche i pagamenti altrui', async () => {
+      await seedBy(MEMBER);
+      await assertSucceeds(deleteDoc(pref(ctx(OWNER))));
+    });
+    test('PY-P10 estranei, anonimi e altri garage: niente lettura, modifica o eliminazione', async () => {
+      await seedBy(MEMBER);
+      for (const [db, who] of [[ctx(STRANGER), STRANGER], [ctx(INVITEE), INVITEE], [anon(), STRANGER], [ctx(OTHER_OWNER), OTHER_OWNER]]) {
+        await assertFails(getDoc(pref(db)));
+        await assertFails(updateDoc(pref(db), ed(who, { amount: 1 })));
+        await assertFails(deleteDoc(pref(db)));
+      }
     });
   });
 });

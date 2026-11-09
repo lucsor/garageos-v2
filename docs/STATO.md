@@ -1,12 +1,36 @@
-# Stato del lavoro — aggiornato 2026-11-08 (sera)
+# Stato del lavoro — aggiornato 2026-11-09
 
-> **In produzione: v2.6.1** (`main` = `e75baa7`), regole `42869098` (= `firestore.rules` di `main`).
+> **In produzione: v2.6.1** (`main` = `e75baa7`), regole `42869098`. Invariato rispetto all'8/11 sera.
+> **In revisione: PR A = v2.7.0** (registro pagamenti + Pagato/Previsto), branch `feat/v2.7-payments-ledger`, **non pubblicata**.
 > **Cosa ti serve fare:**
-> 1. Mandarmi l'esito delle prove dal telefono (§5), compreso «✅ Fatto» con il pagamento.
-> 2. Avvisare l'amico del veicolo con le date del vecchio bug (§3.2).
-> 3. Promemoria: dopo le mattine del 9, 10 e 11/11 ti mostro i conteggi (§3.3).
+> 1. Rivedere il diff delle regole `payments` e autorizzare il deploy delle regole (**prima** del merge della PR A).
+> 2. Le richieste dell'8/11 restano aperte: prove dal telefono (§5 sotto), avviso all'amico (§3.2), conteggi dei promemoria dopo l'11/11 (§3.3).
+
+## 0. Piano v2.7 / v2.8 (`docs/PIANO-v2.7.md`)
+
+| PR | Versione | Contenuto | Stato |
+|---|---|---|---|
+| **A** | 2.7.0 | Registro pagamenti in Spese (filtri, modifica, eliminazione) + **Pagato / Previsto** nelle spese annue (grafico, tabella, CSV). I pagamenti dei veicoli eliminati restano come "Veicolo rimosso" (opzione b) | **in revisione**: test verdi in locale, **regole da pubblicare prima del merge** |
+| **B** | 2.7.1 | Tema scuro: token per i ~75 colori scritti a mano, blocco `prefers-color-scheme: dark`, selettore Auto / Chiaro / Scuro in Impostazioni, `theme-color` dinamico, contrasto AA | prossimo passo (indipendente da A) |
+| **C** | 2.8.0 | Parti d'usura (`garages/{g}/wear`): stato da km e tempo, "🔧 Sostituito", badge e avvisi | da fare, nuove regole `wearOk()` |
+| **C2** | 2.8.1 | Promemoria push per le parti d'usura (soglie km/giorni nello script del cron) | da fare dopo C e dopo la decisione sul passo 7 dei promemoria |
+| **D** | 2.8.2 | Export JSON del garage + import additivo, solo per il proprietario, con anteprima | da fare |
+
+**Correzioni al piano emerse verificandolo sul codice (9/11):**
+- la delegation è `data-action`, non `data-click`, e la chiusura dei modali usa `close-modal`;
+- per il proprietario si usa la variabile `isOwner`, perché `isOwnerOfGarage()` non esiste;
+- la conferma passa da `showConfirm()`;
+- il markup dei modali è `.modal-overlay > .modal`;
+- **oggi qualunque membro può eliminare un veicolo** (`vehicles`: `delete if isMember`), quindi l'opzione (a) del piano non corrisponde alla situazione attuale. Si è scelta la (b);
+- i test PY-P01…P10 hanno il prefisso perché P01…P10 sono già i casi dell'audit.
+
+**Nota di deploy della PR A:** dopo le nuove regole, un client **v2.6.1** ancora aperto che elimina un veicolo prova a cancellare anche i pagamenti. Se a farlo è un membro e i pagamenti sono di altri, quelle cancellazioni vengono respinte (toast d'errore), ma il veicolo viene eliminato e i pagamenti restano: è l'esito voluto dalla (b). La finestra dura finché il telefono non si aggiorna alla 2.7.0.
+
+Schermata del registro (390 px, emulatore): ![](screenshots/v2.7.0-pagamenti-390.png)
 
 ---
+
+# Stato dell'8/11 (sera)
 
 ## 1. Cosa è stato fatto oggi (in ordine)
 

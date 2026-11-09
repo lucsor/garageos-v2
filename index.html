@@ -144,7 +144,8 @@
     <div class="section" id="section-spese">
       <div class="seg">
         <button class="seg-btn active" id="seg-rifornimenti" data-action="spese-sub" data-sub="rifornimenti">⛽ Rifornimenti</button>
-        <button class="seg-btn" id="seg-annue" data-action="spese-sub" data-sub="annue">📊 Spese annue</button>
+        <button class="seg-btn" id="seg-annue" data-action="spese-sub" data-sub="annue">📊 Annue</button>
+        <button class="seg-btn" id="seg-pagamenti" data-action="spese-sub" data-sub="pagamenti">🧾 Pagamenti</button>
       </div>
       <p class="cal-hint" id="fuel-unavailable" role="status" hidden></p>
 
@@ -168,6 +169,24 @@
           <button class="btn btn-secondary btn-sm tap" data-action="csv-spese">⬇️ CSV</button>
         </div>
         <div id="spese-body"></div>
+      </div>
+
+      <!-- registro dei pagamenti (v2.7.0): quelli registrati con "✅ Fatto"; modifica ed eliminazione -->
+      <div id="subsection-pagamenti" style="display:none">
+        <div class="filter-row">
+          <label class="sr-only" for="pay-filter-year">Anno</label>
+          <select class="filter-select" id="pay-filter-year" data-change="pay-filter">
+            <option value="">Tutti gli anni</option>
+          </select>
+          <label class="sr-only" for="pay-filter-vehicle">Veicolo</label>
+          <select class="filter-select" id="pay-filter-vehicle" data-change="pay-filter">
+            <option value="">Tutti i veicoli</option>
+          </select>
+        </div>
+        <p class="ledger-total" id="pay-total" aria-live="polite"></p>
+        <ul class="ledger" id="pay-list"></ul>
+        <div class="empty-state" id="pay-empty" hidden><div class="empty-icon">🧾</div>
+          <p>Nessun pagamento registrato.</p><p class="cal-hint">Si registrano con «✅ Fatto» su una scadenza.</p></div>
       </div>
     </div>
 
@@ -549,6 +568,35 @@
   </div>
 </div>
 
+<!-- MODAL: MODIFICA PAGAMENTO (registro, v2.7.0) -->
+<div class="modal-overlay" id="payment-edit-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pe-title">
+    <div class="modal-title" id="pe-title">Modifica pagamento</div>
+    <input type="hidden" id="pe-id">
+    <div class="form-group">
+      <label class="form-label" for="pe-label">Descrizione</label>
+      <input type="text" class="form-input" id="pe-label" maxlength="60" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="pe-amount">Importo (€)</label>
+        <input type="text" inputmode="decimal" autocomplete="off" class="form-input" id="pe-amount" maxlength="12" placeholder="es. 80,50" aria-describedby="pe-error">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pe-date">Pagato il</label>
+        <input type="date" class="form-input" id="pe-date">
+      </div>
+    </div>
+    <p class="cal-hint" id="pe-info"></p>
+    <p class="form-error" id="pe-error" role="alert" hidden></p>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="btn-pay-delete" data-action="pay-delete">Elimina</button>
+      <button class="btn btn-secondary" data-action="close-modal" data-modal="payment-edit-modal">Annulla</button>
+      <button class="btn btn-primary" id="btn-pay-save" data-action="pay-save">Salva</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: AGGIUNGI AL CALENDARIO (una scadenza) -->
 <div class="modal-overlay" id="cal-modal">
   <div class="modal" style="max-width:400px" role="dialog" aria-modal="true" aria-labelledby="cal-modal-title">
@@ -615,6 +663,7 @@
 <link rel="modulepreload" href="js/fuel.js">
 <link rel="modulepreload" href="js/legacy-banner.js">
 <link rel="modulepreload" href="js/deadlines.js">
+<link rel="modulepreload" href="js/payments.js">
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

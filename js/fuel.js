@@ -148,7 +148,9 @@ export function consumption(refuels) {
 //  - scadenze:   interventi di tipo bollo/revisione/assicurazione + voci `extras` (scadenze con importo:
 //                bollo/revisione/assicurazione del veicolo alla loro data, scadenze personalizzate alla data `due`);
 //  - carburante: importi dei rifornimenti.
-// `extras`: [{ vehicleId, date, amount, category }] con category in CATEGORIES (default 'scadenze'); vedi deadlineExtras().
+// `extras`: [{ vehicleId, date, amount, category, planned }] con category in CATEGORIES (default 'scadenze'); vedi deadlineExtras().
+// "Previsto" (v2.7.0): le voci con `planned: true` (scadenze con data futura, non ancora pagate) NON entrano nelle
+// categorie né in `total`: vanno nella colonna separata `planned` della stessa riga anno|veicolo.
 export const CATEGORIES = ['interventi', 'scadenze', 'carburante'];
 export const yearOf = (date) => (typeof date === 'string' && /^\d{4}-/.test(date) ? Number(date.slice(0, 4)) : null);
 
@@ -156,14 +158,15 @@ export function spendingRows({ mechs = [], refuels = [], extras = [] } = {}) {
   const info = mechCostInfo(mechs);
   const rows = new Map();   // "anno|veicolo" → riga
   let undated = 0;
-  const add = (vehicleId, date, cat, amount, liters = 0) => {
+  const add = (vehicleId, date, cat, amount, liters = 0, planned = false) => {
     if (!(amount > 0) && !(liters > 0)) return;
     const year = yearOf(date);
-    if (year === null) { undated += amount > 0 ? amount : 0; return; }
+    if (year === null) { if (!planned) undated += amount > 0 ? amount : 0; return; }
     const k = `${year}|${vehicleId || ''}`;
     let r = rows.get(k);
-    if (!r) rows.set(k, r = { year, vehicleId: vehicleId || '', interventi: 0, scadenze: 0, carburante: 0, total: 0, liters: 0 });
-    if (amount > 0) { r[cat] += amount; r.total += amount; }
+    if (!r) rows.set(k, r = { year, vehicleId: vehicleId || '', interventi: 0, scadenze: 0, carburante: 0, total: 0, liters: 0, planned: 0 });
+    if (amount > 0 && planned) r.planned += amount;
+    else if (amount > 0) { r[cat] += amount; r.total += amount; }
     r.liters += liters;
   };
   for (const m of mechs) {
@@ -171,10 +174,10 @@ export function spendingRows({ mechs = [], refuels = [], extras = [] } = {}) {
     add(m.vehicleId, m.date, PAID_DEADLINE_TYPES.includes(m.type) ? 'scadenze' : 'interventi', c);
   }
   for (const r of refuels) add(r.vehicleId, r.date, 'carburante', toNum(r.amount) ?? 0, toNum(r.liters) ?? 0);
-  for (const e of extras) add(e.vehicleId, e.date, CATEGORIES.includes(e.category) ? e.category : 'scadenze', toNum(e.amount) ?? 0);
+  for (const e of extras) add(e.vehicleId, e.date, CATEGORIES.includes(e.category) ? e.category : 'scadenze', toNum(e.amount) ?? 0, 0, e.planned === true);
   const list = [...rows.values()].map((r) => ({
     ...r, interventi: round(r.interventi, 2), scadenze: round(r.scadenze, 2), carburante: round(r.carburante, 2),
-    total: round(r.total, 2), liters: round(r.liters, 3),
+    total: round(r.total, 2), liters: round(r.liters, 3), planned: round(r.planned, 2),
   }));
   list.sort((a, b) => a.year - b.year || a.vehicleId.localeCompare(b.vehicleId));
   return { rows: list, undated: round(undated, 2) };
@@ -183,7 +186,9 @@ export function spendingRows({ mechs = [], refuels = [], extras = [] } = {}) {
 // (veicoli sospesi già esclusi). Ogni scadenza conta UNA volta, nell'anno della sua data (la prossima: quelle già
 // passate e rinnovate restano solo come interventi). Doppio conteggio evitato: una scadenza del veicolo NON conta se
 // nello stesso anno lo stesso veicolo ha già un intervento dello stesso tipo (es. bollo pagato a mano).
-export function deadlineExtras(items = [], mechs = []) {
+// `today` ('AAAA-MM-GG', v2.7.0): le scadenze con data successiva sono "previste" (`planned: true`), non pagate;
+// quelle già passate restano contate come prima. Senza `today` nessuna è prevista (comportamento della v2.6).
+export function deadlineExtras(items = [], mechs = [], today = null) {
   const paid = new Set(mechs.filter((m) => PAID_DEADLINE_TYPES.includes(m.type) && yearOf(m.date) !== null)
     .map((m) => `${m.vehicleId}|${m.type}|${yearOf(m.date)}`));
   const out = [];
@@ -194,7 +199,7 @@ export function deadlineExtras(items = [], mechs = []) {
     if (!(amount > 0) || year === null) continue;
     const vehicleId = it.vehicle?.id || '';
     if (it.source === 'vehicle' && paid.has(`${vehicleId}|${it.kind}|${year}`)) continue;
-    out.push({ vehicleId, date: it.date, amount, category: 'scadenze' });
+    out.push({ vehicleId, date: it.date, amount, category: 'scadenze', planned: !!today && it.date > today });
   }
   return out;
 }
@@ -222,7 +227,7 @@ export function paymentExtras(payments = []) {
   for (const p of payments) {
     const amount = toNum(p.amount);
     if (!(amount > 0) || yearOf(p.date) === null) continue;
-    out.push({ vehicleId: p.vehicleId || '', date: p.date, amount, category: 'scadenze' });
+    out.push({ vehicleId: p.vehicleId || '', date: p.date, amount, category: 'scadenze', planned: false });
   }
   return out;
 }
@@ -232,8 +237,8 @@ export function totalsByYear(rows, vehicleId = '') {
   const by = new Map();
   for (const r of rows) {
     if (vehicleId && r.vehicleId !== vehicleId) continue;
-    const t = by.get(r.year) || { year: r.year, interventi: 0, scadenze: 0, carburante: 0, total: 0 };
-    for (const c of [...CATEGORIES, 'total']) t[c] = round(t[c] + r[c], 2);
+    const t = by.get(r.year) || { year: r.year, interventi: 0, scadenze: 0, carburante: 0, total: 0, planned: 0 };
+    for (const c of [...CATEGORIES, 'total', 'planned']) t[c] = round(t[c] + (r[c] || 0), 2);
     by.set(r.year, t);
   }
   return [...by.values()].sort((a, b) => a.year - b.year);
@@ -259,8 +264,9 @@ export function refuelCsvRows(refuels, vehicleLabel = (id) => id) {
   return rows;
 }
 export function spendingCsvRows(rows, vehicleLabel = (id) => id) {
-  const out = [['Anno', 'Veicolo', 'Interventi (€)', 'Scadenze (€)', 'Carburante (€)', 'Totale (€)', 'Litri']];
-  for (const r of rows) out.push([String(r.year), vehicleLabel(r.vehicleId), csvNum(r.interventi), csvNum(r.scadenze), csvNum(r.carburante), csvNum(r.total), csvNum(r.liters)]);
+  // "Totale" = pagato; "Previsto" (v2.7.0) in fondo, così le colonne della v2.6 restano al loro posto
+  const out = [['Anno', 'Veicolo', 'Interventi (€)', 'Scadenze (€)', 'Carburante (€)', 'Totale pagato (€)', 'Litri', 'Previsto (€)']];
+  for (const r of rows) out.push([String(r.year), vehicleLabel(r.vehicleId), csvNum(r.interventi), csvNum(r.scadenze), csvNum(r.carburante), csvNum(r.total), csvNum(r.liters), csvNum(r.planned || 0)]);
   return out;
 }
 
