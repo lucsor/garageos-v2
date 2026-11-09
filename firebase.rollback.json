@@ -1,6 +1,6 @@
 {
   "firestore": {
-    "rules": "docs/rules-backup/pre-v2.6.rules",
+    "rules": "docs/rules-backup/pre-v2.7.rules",
     "indexes": "firestore.indexes.json"
   }
 }
