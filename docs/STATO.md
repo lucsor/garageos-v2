@@ -11,7 +11,7 @@
 | PR | Versione | Contenuto | Stato |
 |---|---|---|---|
 | **A** | 2.7.0 | Registro pagamenti in Spese (filtri, modifica, eliminazione) + **Pagato / Previsto** nelle spese annue (grafico, tabella, CSV). I pagamenti dei veicoli eliminati restano come "Veicolo rimosso" (opzione b) | **IN PRODUZIONE** il 9/11 (§0.1) |
-| **B** | 2.7.1 | Tema scuro: token per i ~75 colori scritti a mano, blocco `prefers-color-scheme: dark`, selettore Auto / Chiaro / Scuro in Impostazioni, `theme-color` dinamico, contrasto AA | **in preparazione** |
+| **B** | 2.7.1 | Tema scuro: token per i ~75 colori scritti a mano, blocco `prefers-color-scheme: dark`, selettore Auto / Chiaro / Scuro in Impostazioni, `theme-color` dinamico, contrasto AA | **in revisione** (§0.4), nessuna regola da pubblicare |
 | **C** | 2.8.0 | Parti d'usura (`garages/{g}/wear`): stato da km e tempo, "🔧 Sostituito", badge e avvisi | da fare, nuove regole `wearOk()` |
 | **C2** | 2.8.1 | Promemoria push per le parti d'usura (soglie km/giorni nello script del cron) | da fare dopo C e dopo la decisione sul passo 7 dei promemoria |
 | **D** | 2.8.2 | Export JSON del garage + import additivo, solo per il proprietario, con anteprima | da fare |
@@ -62,6 +62,33 @@ L'ordine conta: la 2.7.0 con le regole vecchie non riesce a salvare le modifiche
 7. **CSV spese annue:** l'ultima colonna è "Previsto (€)", e "Totale pagato (€)" non contiene le scadenze future.
 8. **Da un membro** (se un familiare collabora): vede il registro e può correggere un pagamento, ma **non vede "Elimina"** su un pagamento registrato da te.
 9. **Veicolo eliminato** (solo se ne hai uno di prova): i suoi pagamenti restano nel registro come "Veicolo rimosso", con il filtro "Veicoli rimossi".
+
+### 0.4 PR B — tema scuro (v2.7.1), in revisione
+- **Dove:** il selettore **Tema: Auto / Chiaro / Scuro** è nel menu utente (avatar). Nell'app non esiste una sezione "Impostazioni": il menu utente è già il posto delle preferenze, come Promemoria.
+- **Come funziona:**
+  - `js/theme-init.js` gira in `<head>` prima del CSS (script esterno, per la CSP) e imposta `data-theme` e `theme-color`;
+  - "Auto" non salva nulla e segue il sistema;
+  - la testata con il gradiente resta scura in entrambi i temi, così come la barra in basso.
+- **Contrasto AA:**
+  - unit test sulle coppie di token in entrambi i temi;
+  - e2e che misura **ogni testo visibile** contro il suo fondo reale in tutte le schede, nel menu e nelle finestre.
+
+  La misura ha trovato tre problemi **già presenti nel tema chiaro**, ora corretti: l'opacità sulla data dei km e sul veicolo sospeso, l'ambra sull'avviso giallo e le voci della barra in basso.
+- **Trovato e corretto:** con un account Google senza foto l'avatar era nascosto, quindi il menu non si apriva (Promemoria, Esci). Ora compare l'iniziale.
+- **Da sapere:** a 390 px la tabella delle Spese annue, con la colonna Previsto, scorre in orizzontale dentro il suo riquadro (la pagina no).
+
+| | Chiaro | Scuro |
+|---|---|---|
+| Garage | ![](screenshots/v2.7.1-garage-chiaro.png) | ![](screenshots/v2.7.1-garage-scuro.png) |
+| Scadenze | ![](screenshots/v2.7.1-scadenze-chiaro.png) | ![](screenshots/v2.7.1-scadenze-scuro.png) |
+| Spese annue | ![](screenshots/v2.7.1-spese-annue-chiaro.png) | ![](screenshots/v2.7.1-spese-annue-scuro.png) |
+
+**Prove dal telefono (dopo il merge):**
+1. Con il telefono in tema scuro e l'app su "Auto": l'app è scura e la barra di stato è scura.
+2. Cambia il tema del sistema con l'app aperta: l'app segue.
+3. Menu (avatar) → **Chiaro**: l'app resta chiara anche con il sistema scuro. Chiudi e riapri: la scelta resta.
+4. Torna su **Auto**: l'app segue di nuovo il sistema.
+5. In tema scuro, i campi data e i menu a tendina delle finestre devono essere scuri e leggibili.
 
 ### 0.3 Correzione sul cron dei promemoria
 L'8/11 avevo scritto che la prima esecuzione pianificata era stata **saltata**: non è così. Era solo **molto in ritardo**. `gh run list` ora mostra due esecuzioni `schedule` riuscite:

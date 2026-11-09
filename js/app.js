@@ -108,11 +108,29 @@ function _showToast(msg, color = 'green') {
     document.body.appendChild(t);
   }
   t.textContent = msg;
-  t.style.background = color === 'red' ? 'var(--red)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green-strong)';
-  t.style.color = color === 'yellow' ? 'var(--ink)' : '#fff';   // bianco su giallo: 2.2:1 → testo scuro
+  t.style.background = color === 'red' ? 'var(--red-strong)' : color === 'yellow' ? 'var(--yellow)' : 'var(--green-strong)';
+  t.style.color = color === 'yellow' ? 'var(--on-yellow)' : 'var(--on-accent)';   // su giallo testo scuro fisso, anche nel tema scuro
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3200);
+}
+
+// ===== TEMA (v2.7.1) =====
+// Auto / Chiaro / Scuro nel menu utente. La preferenza e l'applicazione stanno in js/theme-init.js (caricato in <head>).
+const THEME_LABEL = { auto: 'Auto', light: 'Chiaro', dark: 'Scuro' };
+function renderThemeChoice() {
+  const pref = window.GarageTheme?.get() || 'auto';
+  document.querySelectorAll('[data-action="theme"]').forEach(b => {
+    const on = b.dataset.choice === pref;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+function setTheme(choice) {
+  if (!window.GarageTheme) return;
+  const eff = window.GarageTheme.set(choice);
+  renderThemeChoice();
+  _showToast(`Tema: ${THEME_LABEL[window.GarageTheme.get()]}${window.GarageTheme.get() === 'auto' ? ` (ora ${eff === 'dark' ? 'scuro' : 'chiaro'})` : ''}`);
 }
 
 // ===== AUTH =====
@@ -251,6 +269,9 @@ onAuthStateChanged(auth, async user => {
   const avatarEl = document.getElementById('user-avatar');
   avatarEl.src = user.photoURL || '';
   avatarEl.style.display = user.photoURL ? '' : 'none';
+  const initialEl = document.getElementById('user-initial');
+  initialEl.textContent = (user.displayName || user.email || '?').trim().charAt(0).toUpperCase();
+  initialEl.hidden = !!user.photoURL;
   document.getElementById('menu-user-name').textContent = user.displayName || user.email;
   document.getElementById('menu-user-email').textContent = user.email;
 
@@ -540,7 +561,7 @@ function setStatus(state) {
     cache:   { text: '● Offline · dati locali' },
     error:   { text: '● Offline' },
   }[state];
-  el.style.color = state === 'online' ? '#4fe3b0' : state === 'error' ? '#ff9ba0' : state === 'cache' ? '#ffc555' : 'rgba(255,255,255,0.75)';
+  el.style.color = state === 'online' ? 'var(--mint)' : state === 'error' ? 'var(--status-error)' : state === 'cache' ? 'var(--mint-yellow)' : 'var(--on-grad-2)';
   el.textContent = cfg.text;
 }
 
@@ -1418,7 +1439,7 @@ function renderDashboard() {
           </div>
         </div>
         <div class="vc-model">${esc(v.model)}</div>
-        <div class="vc-meta">${v.year ? esc(v.year) + ' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT') + ' km' : ''}${v.kmDate ? ' <span style="opacity:0.65">al ' + esc(formatDate(v.kmDate)) + '</span>' : ''}</div>
+        <div class="vc-meta">${v.year ? esc(v.year) + ' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT') + ' km' : ''}${v.kmDate ? ' <span class="vc-kmdate">al ' + esc(formatDate(v.kmDate)) + '</span>' : ''}</div>
         ${costLine}
         ${fuelLine}
         ${addedBy}
@@ -1460,13 +1481,13 @@ function renderScadenze() {
       return `<div class="scadenza-item">
       <div class="sc-icon-wrap emoji" style="background:${softs[cls]}">${item.icon}</div>
       <div class="sc-info">
-        <div class="sc-title">${esc(item.label)} — ${esc(where)}${typeof item.cost === 'number' && item.cost > 0 ? ` <span style="color:var(--green);font-size:13px">· €${item.cost.toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-title">${esc(item.label)} — ${esc(where)}${typeof item.cost === 'number' && item.cost > 0 ? ` <span style="color:var(--green-ink);font-size:13px">· €${item.cost.toLocaleString('it-IT')}</span>` : ''}</div>
         <div class="sc-sub">${esc(subParts.join(' · '))}</div>
         ${dl.note ? `<div class="sc-sub">${esc(dl.note)}</div>` : ''}
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[cls]}"></div></div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-        <div class="sc-days" style="color:${colors[cls]}">${daysText}</div>
+        <div class="sc-days" style="color:${textColors[cls]}">${daysText}</div>
         <div style="display:flex;gap:6px">
           ${days !== null && days >= 0 ? `<button class="icon-btn" data-action="cal-choice" data-id="${esc(dl.id)}" data-kind="custom" title="Aggiungi al calendario" aria-label="Aggiungi ${esc(item.label)} al calendario">📅</button>` : ''}
           <button class="icon-btn" data-action="edit-deadline" data-id="${esc(dl.id)}" title="Modifica" aria-label="Modifica ${esc(item.label)}">✏️</button>
@@ -2244,6 +2265,7 @@ const ACTIONS = {
   'cancel-login':     () => restoreLoginBox(),
   'sign-out':         () => signOutUser(),
   'user-menu':        () => toggleUserMenu(),
+  'theme':            d => setTheme(d.choice),
   'garage-name':      () => openGarageName(),
   'tab':              d => { toggleUserMenu(false); switchTab(d.tab, d.vehicle); },
   'enable-notif':     () => { toggleUserMenu(false); enableNotifications(); },
@@ -2382,6 +2404,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ===== INIT =====
+renderThemeChoice();
 setStatus('loading');
 updateFab();
 renderAll();
