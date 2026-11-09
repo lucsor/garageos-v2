@@ -1,6 +1,6 @@
 // ===== GarageOS Service Worker =====
 // Aggiorna questo numero ogni volta che carichi una nuova versione! (il pre-commit hook lo controlla)
-const VERSION = '2.7.0';
+const VERSION = '2.7.1';
 const CACHE_PREFIX = 'garageos-v';            // solo le cache con questo prefisso appartengono a questo SW
 const CACHE_NAME = CACHE_PREFIX + VERSION;
 const NOTIF_CACHE = 'garageos-notif';         // snapshot scadenze per le notifiche: NON va mai cancellata
@@ -24,6 +24,7 @@ const PRECACHE = [
   './js/legacy-banner.js',
   './js/deadlines.js',
   './js/payments.js',
+  './js/theme-init.js',
   // SDK Firebase (URL versionati e immutabili, CORS aperto): senza questi l'app offline resta bianca
   FIREBASE_SDK + 'firebase-app.js',
   FIREBASE_SDK + 'firebase-firestore.js',

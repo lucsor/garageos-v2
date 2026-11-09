@@ -8,6 +8,8 @@
 <title>GarageOS — Il tuo parco macchine</title>
 <meta name="description" content="Gestisci il tuo parco macchine in famiglia">
 <meta name="theme-color" content="#0c333d">
+<!-- tema (v2.7.1): sincrono, PRIMA del CSS, per non disegnare la pagina con il tema sbagliato -->
+<script src="js/theme-init.js"></script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="GarageOS">
@@ -57,6 +59,8 @@
     <div class="top-actions" id="header-user-area">
       <div id="db-status">⏳ Connessione…</div>
       <img id="user-avatar" class="user-avatar" src="" alt="Utente" style="display:none" data-action="user-menu">
+      <!-- account senza foto: iniziale al posto dell'avatar (prima il menu non si poteva aprire) -->
+      <button id="user-initial" class="user-avatar user-initial" type="button" aria-label="Menu utente" data-action="user-menu" hidden></button>
       <div class="user-menu" id="user-menu">
         <div class="user-menu-header">
           <div class="user-menu-name" id="menu-user-name">—</div>
@@ -64,6 +68,14 @@
         </div>
         <div class="user-menu-item" data-action="tab" data-tab="famiglia"><span class="emoji">👨‍👩‍👧</span> Gestione Famiglia</div>
         <div class="user-menu-item" data-action="open-push"><span class="emoji">🔔</span> Promemoria</div>
+        <div class="user-menu-theme">
+          <span class="umt-label" id="theme-label"><span class="emoji">🌓</span> Tema</span>
+          <div class="seg seg-sm" role="radiogroup" aria-labelledby="theme-label">
+            <button class="seg-btn" role="radio" aria-checked="true" data-action="theme" data-choice="auto">Auto</button>
+            <button class="seg-btn" role="radio" aria-checked="false" data-action="theme" data-choice="light">Chiaro</button>
+            <button class="seg-btn" role="radio" aria-checked="false" data-action="theme" data-choice="dark">Scuro</button>
+          </div>
+        </div>
         <div class="user-menu-item danger" data-action="sign-out"><span class="emoji">🚪</span> Esci</div>
       </div>
     </div>

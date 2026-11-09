@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.7.1] — non ancora pubblicata
+### Novità
+- **Tema scuro.** Nel menu utente (avatar in alto a destra) c'è **Tema: Auto / Chiaro / Scuro**:
+  - "Auto" (predefinito) segue il sistema e cambia insieme a lui anche con l'app aperta;
+  - la scelta resta salvata sul dispositivo;
+  - il tema si applica prima del primo disegno, quindi non c'è il lampo bianco;
+  - anche la barra di sistema (`theme-color`) cambia colore;
+  - campi data e menu a tendina usano i controlli scuri del sistema (`color-scheme`).
+- **Account senza foto:** al posto dell'avatar compare l'iniziale. Prima l'avatar era nascosto e il menu (Promemoria, Esci) non si poteva aprire.
+### Accessibilità
+- Tutti i colori sono **token CSS**: nessun colore scritto a mano fuori da `:root` e dai blocchi del tema scuro, e un test lo verifica.
+- **Contrasto WCAG AA verificato in entrambi i temi:**
+  - un unit test sulle 36 coppie testo/fondo dei token;
+  - un e2e che misura il contrasto di ogni testo visibile in tutte le schede, nel menu e nelle finestre.
+- Correzioni emerse dalla misura, valide anche nel tema chiaro:
+  - "al <data>" dei km e scheda del veicolo sospeso: l'opacità portava il testo a 2,7–3,3:1. Ora il veicolo sospeso ha fondo attenuato e bordo tratteggiato;
+  - testo ambra sull'avviso giallo: da 4,4:1 a 4,6:1;
+  - voci della barra in basso: da 4,3:1 a 5:1;
+  - importo e giorni delle scadenze personalizzate: usavano il verde decorativo.
+### Sviluppo
+- `js/theme-init.js`: script classico in `<head>`, perché la CSP non ammette script inline.
+- Test nuovi: `tests/unit/theme.test.mjs` e `tests/e2e/theme.e2e.mjs`, entrambi in CI.
+
 ## [2.7.0] — non ancora pubblicata
 ### Novità
 - **Registro pagamenti** (Spese → **🧾 Pagamenti**): i pagamenti registrati con «✅ Fatto», dal più recente, con filtro per anno e per veicolo (anche "Garage (senza veicolo)" e "Veicoli rimossi") e il totale. Toccando un pagamento si correggono **importo, data e descrizione**; compare "modificato". **Elimina** (con il modale di conferma dell'app) solo per chi l'ha registrato o per il proprietario del garage: la scadenza non torna indietro.
