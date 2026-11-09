@@ -148,7 +148,12 @@ check(await page.$$eval('.fuel-item[data-refuel]', (x) => x.length) === 3, 'tre 
 check((await page.textContent('.fuel-group')).includes('parziale'), 'il parziale è indicato come tale');
 const noScroll = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 check(noScroll, 'a 360 px nessuno scroll orizzontale (rifornimenti)');
-const tapOk = await page.$$eval('.fuel-item [data-action]', (b) => b.every((x) => x.getBoundingClientRect().height >= 44 && x.getBoundingClientRect().width >= 44));
+// Ricerca e misura nella STESSA funzione, ripetuta finché vale: con $$eval i pulsanti trovati potevano essere staccati
+// da un nuovo disegno della lista (snapshot di Firestore, es. km del veicolo aggiornati) e misurare 0×0 (CI instabile, #15 e #18).
+const tapOk = await page.waitForFunction(() => {
+  const b = [...document.querySelectorAll('.fuel-item [data-action]')];
+  return b.length > 0 && b.every((x) => { const r = x.getBoundingClientRect(); return r.height >= 44 && r.width >= 44; });
+}, null, { timeout: 5000 }).then(() => true, () => false);
 check(tapOk, 'pulsanti modifica/elimina ≥ 44 × 44 px');
 
 // modifica (regole di update: createdAt e addedBy invariati, updatedAt del server)
